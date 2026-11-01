@@ -1,0 +1,6 @@
+{
+  "summary":  "Güncellenmiş PWA Tabanlı Miras Taksim Uygulaması mimari planı. Kullanıcı geri bildirimleri doğrultusunda: Demo yükleme butonu kaldırıldı; Google Hibrit harita katmanı eklendi; mirasçı sayısı sınırı kaldırılarak 100+ mirasçıya kadar ölçeklenebilir dinamik mimari kurgulandı; standart dosya seçiciyle yükleme benimsendi; parsel içi alt KML yükleme ile fiili kullanım sınırları (rızai taksim krokisi) oluşturma ve notere tasdik ettirilebilir kullanım sözleşmesi entegrasyonu dahil edildi.",
+  "updatedAt":  "2026-11-01T11:29:29.897681295Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

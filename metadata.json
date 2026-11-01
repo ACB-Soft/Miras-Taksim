@@ -1,0 +1,6 @@
+{
+  "name": "PWA Miras Taksim ve Fiili Kullanım Yönetimi",
+  "description": "20+ parsel ve çok paydaşlı miras intikalleri için Google Hibrit harita, KML ve alt KML fiili kullanım krokisi, fraction.js kesir hesabı, yapay zeka destekli taksim optimizasyonu ve noter taslakları üreten PWA uygulaması.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
