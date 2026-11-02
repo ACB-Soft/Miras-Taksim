@@ -80,6 +80,7 @@ export interface TaksimScenario {
   description: string;
   assignments: Record<string, string[]>; // heirId -> parcelIds[]
   jointParcels?: Record<string, string[]>; // parcelId -> heirIds[] (kol ortaklığı durumunda)
+  branchAssignments?: Record<string, string>; // parcelId -> branchId (üst kola ait olan parseller)
   balances: HeirBalance[];
   equalizationItems: EqualizationItem[];
   totalIvazAmountTL: number;

@@ -1,5 +1,244 @@
 import { Heir, Parcel, TaksimScenario, HeirBalance, EqualizationItem } from '../types';
 import { parseFraction } from './fractionEngine';
+import Fraction from 'fraction.js';
+
+/**
+ * Calculates exact balances, net differences, and equalization (ivaz) transfers
+ * for any given scenario assignment (whether manual or automated).
+ */
+export function calculateScenarioBalancesAndIvaz(
+  parcels: Parcel[],
+  heirs: Heir[],
+  mode: 'pure_independent' | 'sibling_consolidation',
+  assignments: Record<string, string[]>,
+  jointParcels: Record<string, string[]> = {},
+  branchAssignments: Record<string, string> = {},
+  existingScenario?: Partial<TaksimScenario>
+): TaksimScenario {
+  // 1. Total portfolio value
+  const totalPortfolioTL = parcels.reduce(
+    (sum, p) => sum + (Number(p.toplamDegerTL) || 0),
+    0
+  );
+
+  // 2. Exact Entitlement Map (TL) using fraction.js
+  const entitlementMap: Record<string, number> = {};
+  heirs.forEach((h) => {
+    const frac = parseFraction(h.hisseOrani);
+    entitlementMap[h.id] = Math.round(frac.mul(totalPortfolioTL).valueOf() * 100) / 100;
+  });
+
+  // Ensure every heir has an assignments array
+  const safeAssignments: Record<string, string[]> = {};
+  heirs.forEach((h) => {
+    safeAssignments[h.id] = [...(assignments[h.id] || [])];
+  });
+
+  // 3. Compute balances for all heirs
+  const balances: HeirBalance[] = heirs.map((heir) => {
+    const hakEdilenTL = entitlementMap[heir.id] || 0;
+    const aldigiParcelIds = safeAssignments[heir.id] || [];
+
+    let aldigiParsellerDegeriTL = 0;
+    const aldigiParselAdlari: string[] = [];
+
+    aldigiParcelIds.forEach((pId) => {
+      const p = parcels.find((item) => item.id === pId);
+      if (!p) return;
+
+      const pTotalVal = Number(p.toplamDegerTL) || 0;
+      const isJoint = jointParcels[pId] && jointParcels[pId].includes(heir.id);
+
+      if (isJoint) {
+        const jointHeirIds = jointParcels[pId];
+        const jointHeirs = heirs.filter((h) => jointHeirIds.includes(h.id));
+
+        // Weight distribution among joint heirs based on relative / internal shares
+        let totalWeight = new Fraction(0);
+        jointHeirs.forEach((jh) => {
+          const w = jh.kolIciPayOrani ? parseFraction(jh.kolIciPayOrani) : parseFraction(jh.hisseOrani);
+          totalWeight = totalWeight.add(w);
+        });
+
+        let ratio = 1 / Math.max(jointHeirIds.length, 1);
+        if (totalWeight.valueOf() > 0) {
+          const myW = heir.kolIciPayOrani ? parseFraction(heir.kolIciPayOrani) : parseFraction(heir.hisseOrani);
+          ratio = myW.div(totalWeight).valueOf();
+        }
+
+        const portionValue = pTotalVal * ratio;
+        aldigiParsellerDegeriTL += portionValue;
+        aldigiParselAdlari.push(`${p.ada}/${p.parselNo} (Müşterek)`);
+      } else {
+        aldigiParsellerDegeriTL += pTotalVal;
+        aldigiParselAdlari.push(`${p.ada}/${p.parselNo}`);
+      }
+    });
+
+    aldigiParsellerDegeriTL = Math.round(aldigiParsellerDegeriTL * 100) / 100;
+    // netFarkTL:
+    // Positive = Received more than entitlement -> Borçlu (pays cash ivaz)
+    // Negative = Received less than entitlement -> Alacaklı (receives cash ivaz)
+    const netFarkTL = Math.round((aldigiParsellerDegeriTL - hakEdilenTL) * 100) / 100;
+
+    let durum: 'alacakli' | 'borclu' | 'denk' = 'denk';
+    if (netFarkTL > 0.05) durum = 'borclu';
+    else if (netFarkTL < -0.05) durum = 'alacakli';
+
+    return {
+      heirId: heir.id,
+      heirName: heir.adSoyad,
+      kokMurisKolId: heir.kokMurisKolId,
+      hisseOrani: heir.hisseOrani,
+      hakEdilenTL,
+      aldigiParsellerDegeriTL,
+      aldigiParselAdlari,
+      netFarkTL,
+      durum,
+    };
+  });
+
+  // 4. Calculate Equalization Transactions (Borçlular -> Alacaklılar Mahsuplaşma)
+  const debtors = balances
+    .filter((b) => b.durum === 'borclu')
+    .map((b) => ({ ...b, remainingDebt: b.netFarkTL }))
+    .sort((a, b) => b.remainingDebt - a.remainingDebt);
+
+  const creditors = balances
+    .filter((b) => b.durum === 'alacakli')
+    .map((b) => ({ ...b, remainingCredit: Math.abs(b.netFarkTL) }))
+    .sort((a, b) => b.remainingCredit - a.remainingCredit);
+
+  const equalizationItems: EqualizationItem[] = [];
+  let dIdx = 0;
+  let cIdx = 0;
+
+  while (dIdx < debtors.length && cIdx < creditors.length) {
+    const debtor = debtors[dIdx];
+    const creditor = creditors[cIdx];
+
+    const payAmount = Math.min(debtor.remainingDebt, creditor.remainingCredit);
+    const roundedPay = Math.round(payAmount * 100) / 100;
+
+    if (roundedPay > 0.01) {
+      equalizationItems.push({
+        debtorId: debtor.heirId,
+        debtorName: debtor.heirName,
+        creditorId: creditor.heirId,
+        creditorName: creditor.heirName,
+        amountTL: roundedPay,
+        description: `${debtor.heirName} tarafından ${creditor.heirName}'a ödenecek nakit ivaz denkleştirme bedeli`,
+      });
+
+      debtor.remainingDebt -= roundedPay;
+      creditor.remainingCredit -= roundedPay;
+    }
+
+    if (debtor.remainingDebt < 0.05) dIdx++;
+    if (creditor.remainingCredit < 0.05) cIdx++;
+  }
+
+  const totalIvazAmountTL = equalizationItems.reduce((acc, item) => acc + item.amountTL, 0);
+  const maxDiscrepancyTL = Math.max(...balances.map((b) => Math.abs(b.netFarkTL)), 0);
+
+  return {
+    id: existingScenario?.id || 'scen_' + Date.now(),
+    mode,
+    name:
+      mode === 'pure_independent'
+        ? 'Tam Müstakil Taksim Senaryosu'
+        : 'Veraset Kolu Ortaklı Taksim Senaryosu',
+    description:
+      mode === 'pure_independent'
+        ? 'Her parsel tek bir müstakil malike atanır; aradaki değer farkları nakit ivazla kapatılır.'
+        : 'Gerektiğinde aynı veraset kolundaki paydaşlar bir parsele ortak edilir; nakit ivaz yükü en aza indirilir.',
+    assignments: safeAssignments,
+    jointParcels,
+    branchAssignments,
+    balances,
+    equalizationItems,
+    totalIvazAmountTL: Math.round(totalIvazAmountTL * 100) / 100,
+    maxDiscrepancyTL: Math.round(maxDiscrepancyTL * 100) / 100,
+    aiJustification: existingScenario?.aiJustification,
+    createdAt: existingScenario?.createdAt || new Date().toISOString(),
+  };
+}
+
+/**
+ * Manually assign or unassign a parcel to an heir in Pure Independent Mode
+ */
+export function assignParcelToHeir(
+  parcelId: string,
+  targetHeirId: string | null,
+  currentAssignments: Record<string, string[]>,
+  heirs: Heir[]
+): Record<string, string[]> {
+  const newAssignments: Record<string, string[]> = {};
+  heirs.forEach((h) => {
+    // Remove the parcel from any previous heir
+    newAssignments[h.id] = (currentAssignments[h.id] || []).filter((id) => id !== parcelId);
+  });
+
+  // Assign to the selected heir if valid
+  if (targetHeirId && newAssignments[targetHeirId] !== undefined) {
+    newAssignments[targetHeirId].push(parcelId);
+  }
+
+  return newAssignments;
+}
+
+/**
+ * Manually assign or unassign a parcel to a Veraset Kolu (Branch) in Branch Consolidation Mode
+ */
+export function assignParcelToBranch(
+  parcelId: string,
+  targetBranchId: string | null,
+  heirs: Heir[],
+  currentAssignments: Record<string, string[]>,
+  currentJointParcels: Record<string, string[]> = {},
+  currentBranchAssignments: Record<string, string> = {}
+): {
+  assignments: Record<string, string[]>;
+  jointParcels: Record<string, string[]>;
+  branchAssignments: Record<string, string>;
+} {
+  const newAssignments: Record<string, string[]> = {};
+  heirs.forEach((h) => {
+    newAssignments[h.id] = (currentAssignments[h.id] || []).filter((id) => id !== parcelId);
+  });
+
+  const newJointParcels: Record<string, string[]> = { ...currentJointParcels };
+  delete newJointParcels[parcelId];
+
+  const newBranchAssignments: Record<string, string> = { ...currentBranchAssignments };
+  delete newBranchAssignments[parcelId];
+
+  if (targetBranchId) {
+    newBranchAssignments[parcelId] = targetBranchId;
+
+    // Find all heirs in this branch
+    const branchHeirs = heirs.filter((h) => h.kokMurisKolId === targetBranchId);
+
+    if (branchHeirs.length === 1) {
+      // Single heir in this branch receives full parcel
+      const heir = branchHeirs[0];
+      newAssignments[heir.id] = [...(newAssignments[heir.id] || []), parcelId];
+    } else if (branchHeirs.length > 1) {
+      // Multiple heirs in this branch receive it jointly
+      const heirIds = branchHeirs.map((h) => h.id);
+      newJointParcels[parcelId] = heirIds;
+      branchHeirs.forEach((h) => {
+        newAssignments[h.id] = [...(newAssignments[h.id] || []), parcelId];
+      });
+    }
+  }
+
+  return {
+    assignments: newAssignments,
+    jointParcels: newJointParcels,
+    branchAssignments: newBranchAssignments,
+  };
+}
 
 /**
  * Solves the Taksim Partition problem using Bin-Packing & Local Search
@@ -17,6 +256,8 @@ export function runTaksimOptimization(
       name: mode === 'pure_independent' ? 'Tam Müstakil Taksim' : 'Veraset Kolu Ortaklı Taksim',
       description: 'Hesaplanacak parsel veya mirasçı bulunamadı.',
       assignments: {},
+      jointParcels: {},
+      branchAssignments: {},
       balances: [],
       equalizationItems: [],
       totalIvazAmountTL: 0,
@@ -45,6 +286,8 @@ export function runTaksimOptimization(
 
   const assignments: Record<string, string[]> = {};
   const jointParcels: Record<string, string[]> = {};
+  const branchAssignments: Record<string, string> = {};
+
   heirs.forEach((h) => {
     assignments[h.id] = [];
   });
@@ -176,20 +419,22 @@ export function runTaksimOptimization(
       if (bestHeir) {
         const target = entitlementMap[bestHeir.id] || 0;
         const current = allocatedTL[bestHeir.id] || 0;
+        const branchId = bestHeir.kokMurisKolId || 'KOK_GENEL';
+        branchAssignments[parcel.id] = branchId;
 
         // If parcel value exceeds heir's deficit and siblings exist in same branch, consider joint allocation
-        const branchMembers = (branchGroups[bestHeir.kokMurisKolId] || []).filter(
+        const branchMembers = (branchGroups[branchId] || []).filter(
           (m) => m.id !== bestHeir!.id
         );
 
         if (pVal > (target - current) * 1.5 && branchMembers.length > 0) {
           const sibling = branchMembers.sort(
             (a, b) =>
-              (entitlementMap[b.id] - (allocatedTL[b.id] || 0)) -
+              entitlementMap[b.id] - (allocatedTL[b.id] || 0) -
               (entitlementMap[a.id] - (allocatedTL[a.id] || 0))
           )[0];
 
-          if (sibling && (entitlementMap[sibling.id] - (allocatedTL[sibling.id] || 0)) > 0) {
+          if (sibling && entitlementMap[sibling.id] - (allocatedTL[sibling.id] || 0) > 0) {
             const halfVal = pVal / 2;
             assignments[bestHeir.id].push(parcel.id);
             assignments[sibling.id].push(parcel.id);
@@ -206,106 +451,13 @@ export function runTaksimOptimization(
     }
   }
 
-  // 3. Compute final balances for all heirs
-  const balances: HeirBalance[] = heirs.map((heir) => {
-    const hakEdilenTL = entitlementMap[heir.id] || 0;
-    const aldigiParcelIds = assignments[heir.id] || [];
-
-    let aldigiParsellerDegeriTL = 0;
-    const aldigiParselAdlari: string[] = [];
-
-    aldigiParcelIds.forEach((pId) => {
-      const p = parcels.find((item) => item.id === pId);
-      if (p) {
-        const isJoint = jointParcels[pId] && jointParcels[pId].includes(heir.id);
-        const jointCount = isJoint ? jointParcels[pId].length : 1;
-        const portionValue = (Number(p.toplamDegerTL) || 0) / jointCount;
-        aldigiParsellerDegeriTL += portionValue;
-        aldigiParselAdlari.push(
-          `${p.ada}/${p.parselNo}${isJoint ? ' (Müşterek)' : ''}`
-        );
-      }
-    });
-
-    aldigiParsellerDegeriTL = Math.round(aldigiParsellerDegeriTL * 100) / 100;
-    // netFarkTL: Positive = Received more than entitlement (Borçlu - must pay cash ivaz)
-    // Negative = Received less than entitlement (Alacaklı - must receive cash ivaz)
-    const netFarkTL = Math.round((aldigiParsellerDegeriTL - hakEdilenTL) * 100) / 100;
-
-    let durum: 'alacakli' | 'borclu' | 'denk' = 'denk';
-    if (netFarkTL > 0.05) durum = 'borclu';
-    else if (netFarkTL < -0.05) durum = 'alacakli';
-
-    return {
-      heirId: heir.id,
-      heirName: heir.adSoyad,
-      kokMurisKolId: heir.kokMurisKolId,
-      hisseOrani: heir.hisseOrani,
-      hakEdilenTL,
-      aldigiParsellerDegeriTL,
-      aldigiParselAdlari,
-      netFarkTL,
-      durum,
-    };
-  });
-
-  // 4. Calculate Equalization Transactions (Borçlular -> Alacaklılar Mahsuplaşma)
-  const debtors = balances
-    .filter((b) => b.durum === 'borclu')
-    .map((b) => ({ ...b, remainingDebt: b.netFarkTL }))
-    .sort((a, b) => b.remainingDebt - a.remainingDebt);
-
-  const creditors = balances
-    .filter((b) => b.durum === 'alacakli')
-    .map((b) => ({ ...b, remainingCredit: Math.abs(b.netFarkTL) }))
-    .sort((a, b) => b.remainingCredit - a.remainingCredit);
-
-  const equalizationItems: EqualizationItem[] = [];
-  let dIdx = 0;
-  let cIdx = 0;
-
-  while (dIdx < debtors.length && cIdx < creditors.length) {
-    const debtor = debtors[dIdx];
-    const creditor = creditors[cIdx];
-
-    const payAmount = Math.min(debtor.remainingDebt, creditor.remainingCredit);
-    const roundedPay = Math.round(payAmount * 100) / 100;
-
-    if (roundedPay > 0.01) {
-      equalizationItems.push({
-        debtorId: debtor.heirId,
-        debtorName: debtor.heirName,
-        creditorId: creditor.heirId,
-        creditorName: creditor.heirName,
-        amountTL: roundedPay,
-        description: `${debtor.heirName} tarafından ${creditor.heirName}'a ödenecek nakit ivaz denkleştirme bedeli`,
-      });
-
-      debtor.remainingDebt -= roundedPay;
-      creditor.remainingCredit -= roundedPay;
-    }
-
-    if (debtor.remainingDebt < 0.05) dIdx++;
-    if (creditor.remainingCredit < 0.05) cIdx++;
-  }
-
-  const totalIvazAmountTL = equalizationItems.reduce((acc, item) => acc + item.amountTL, 0);
-  const maxDiscrepancyTL = Math.max(...balances.map((b) => Math.abs(b.netFarkTL)), 0);
-
-  return {
-    id: 'scen_' + Date.now(),
+  // Calculate final scenario using the unified calculator
+  return calculateScenarioBalancesAndIvaz(
+    parcels,
+    heirs,
     mode,
-    name: mode === 'pure_independent' ? 'Tam Müstakil Taksim Senaryosu' : 'Veraset Kolu Ortaklı Taksim Senaryosu',
-    description:
-      mode === 'pure_independent'
-        ? 'Her parsel tek bir müstakil tapuya atanır; aradaki değer farkları nakit ivazla kapatılır.'
-        : 'Gerektiğinde aynı veraset kolundaki paydaşlar bir parsele ortak edilir; nakit ivaz yükü en aza indirilir.',
     assignments,
     jointParcels,
-    balances,
-    equalizationItems,
-    totalIvazAmountTL: Math.round(totalIvazAmountTL * 100) / 100,
-    maxDiscrepancyTL: Math.round(maxDiscrepancyTL * 100) / 100,
-    createdAt: new Date().toISOString(),
-  };
+    branchAssignments
+  );
 }
