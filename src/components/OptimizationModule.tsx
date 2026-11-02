@@ -185,7 +185,7 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
           </div>
         </div>
 
-        {/* Card B: Kardeş Ortaklı */}
+        {/* Card B: Veraset Kolu Ortaklı */}
         <div
           onClick={() => handleSelectModeAsActive('sibling_consolidation')}
           className={`p-4 rounded-xl border cursor-pointer transition-all ${
@@ -198,7 +198,7 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
             <div className="flex items-center gap-2">
               <Users2 className="w-4 h-4 text-indigo-600" />
               <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                2. Senaryo: Kardeş Ortaklı Taksim
+                2. Senaryo: Veraset Kolu Ortaklı Taksim
               </h3>
             </div>
             {project.selectedScenarioMode === 'sibling_consolidation' && (
@@ -208,7 +208,7 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
             )}
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Yetersiz parsel veya yüksek değer durumunda aynı koldan gelen kardeşler bir parsele ortak edilir, nakit ivaz borcu minimize edilir.
+            Yetersiz parsel veya yüksek değer durumunda aynı veraset kolundaki paydaşlar bir parsele ortak edilir, nakit ivaz borcu minimize edilir.
           </p>
 
           <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between font-mono text-xs">

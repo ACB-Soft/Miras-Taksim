@@ -19,11 +19,19 @@ import { ArchiveModule } from './components/ArchiveModule';
 const INITIAL_PROJECT_STATE: ProjectState = {
   projectName: 'Miras Taksim ve Fiili Kullanım Yönetimi',
   aciklama: '',
+  rootOwnerName: '1. Kuşak Mülk Sahibi',
+  rootOwnerTitle: '1. Kuşak · Kök Malik',
+  generationNames: {
+    1: '1. Kuşak (İlk Mülk Sahibi)',
+    2: '2. Kuşak (Veraset Kolları)',
+    3: '3. Kuşak (Mirasçılar)',
+    4: '4. Kuşak (Mirasçılar)',
+  },
   parcels: [],
   branches: [
-    { id: 'Kol-1', adSoyad: '1. Kardeş Kolu', kokHisseOrani: '1/3' },
-    { id: 'Kol-2', adSoyad: '2. Kardeş Kolu', kokHisseOrani: '1/3' },
-    { id: 'Kol-3', adSoyad: '3. Kardeş Kolu', kokHisseOrani: '1/3' },
+    { id: 'Kol-1', adSoyad: '1. Veraset Kolu', kokHisseOrani: '1/3' },
+    { id: 'Kol-2', adSoyad: '2. Veraset Kolu', kokHisseOrani: '1/3' },
+    { id: 'Kol-3', adSoyad: '3. Veraset Kolu', kokHisseOrani: '1/3' },
   ],
   heirs: [],
   selectedScenarioMode: 'pure_independent',
@@ -84,6 +92,21 @@ export default function App() {
     setProject((prev) => ({
       ...prev,
       branches: newBranches,
+    }));
+  };
+
+  const handleUpdateRootOwner = (name: string, title?: string) => {
+    setProject((prev) => ({
+      ...prev,
+      rootOwnerName: name,
+      rootOwnerTitle: title ?? prev.rootOwnerTitle,
+    }));
+  };
+
+  const handleUpdateGenerationNames = (names: Record<number, string>) => {
+    setProject((prev) => ({
+      ...prev,
+      generationNames: names,
     }));
   };
 
@@ -155,8 +178,13 @@ export default function App() {
                 heirs={project.heirs}
                 branches={project.branches}
                 parcels={project.parcels}
+                rootOwnerName={project.rootOwnerName}
+                rootOwnerTitle={project.rootOwnerTitle}
+                generationNames={project.generationNames}
                 onUpdateHeirs={handleUpdateHeirs}
                 onUpdateBranches={handleUpdateBranches}
+                onUpdateRootOwner={handleUpdateRootOwner}
+                onUpdateGenerationNames={handleUpdateGenerationNames}
               />
             )}
 

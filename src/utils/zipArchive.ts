@@ -25,7 +25,7 @@ Proje Adı       : ${project.projectName || 'Miras Taksimi'}
 Yedekleme Tarihi: ${new Date().toLocaleString('tr-TR')}
 Toplam Parsel   : ${project.parcels.length}
 Toplam Mirasçı  : ${project.heirs.length}
-Seçili Taksim   : ${project.selectedScenarioMode === 'pure_independent' ? 'Tam Müstakil' : 'Kardeş Ortaklı'}
+Seçili Taksim   : ${project.selectedScenarioMode === 'pure_independent' ? 'Tam Müstakil' : 'Veraset Kolu Ortaklı'}
 
 Bu arşiv dosyası Miras Taksim PWA uygulamasına doğrudan yüklenerek ("Dosyadan ZIP Yükle")
 tüm parsel, hisse, optimizasyon ve noter taslaklarıyla kaldığınız yerden devam etmenizi sağlar.

@@ -117,11 +117,13 @@ export const MapModule: React.FC<MapModuleProps> = ({
 
       // Master Parcel Popup
       const subAreaCount = parcel.subUsageAreas?.length || 0;
+      const locationLine = [parcel.il, parcel.ilce, parcel.mahalle].filter(Boolean).join(' / ');
       const popupHtml = `
-        <div class="p-2 min-w-[180px] font-sans text-xs">
+        <div class="p-2 min-w-[200px] font-sans text-xs">
           <div class="font-bold text-slate-900 border-b pb-1 mb-1">
-            Ada ${parcel.ada} / Parsel ${parcel.parselNo}
+            Ada ${parcel.ada} / Parsel ${parcel.parselNo} ${parcel.pafta ? `<span class="text-[10px] text-slate-500 font-normal">(Pafta: ${parcel.pafta})</span>` : ''}
           </div>
+          ${locationLine ? `<div class="text-slate-600 mb-0.5 text-[11px]">Konum: <strong>${locationLine}</strong></div>` : ''}
           <div class="text-slate-600 mb-0.5">Mevkii: <strong>${parcel.mevkii || '-'}</strong></div>
           <div class="text-slate-600 mb-0.5">Yüzölçümü: <strong>${formatArea(parcel.alanM2)}</strong></div>
           <div class="text-slate-600 mb-0.5">Nitelik: <strong>${parcel.nitelik}</strong></div>
@@ -131,7 +133,7 @@ export const MapModule: React.FC<MapModuleProps> = ({
               ? `<div class="mt-1 text-[11px] text-emerald-700 font-semibold border-t pt-1">
                    ${subAreaCount} Adet Fiili Kullanım Bölümü Mevcut
                  </div>`
-              : `<div class="mt-1 text-[10px] text-slate-600">Alt kullanım alanı tanımlanmamış</div>`
+              : `<div class="mt-1 text-[10px] text-slate-400">Alt kullanım alanı tanımlanmamış</div>`
           }
         </div>
       `;

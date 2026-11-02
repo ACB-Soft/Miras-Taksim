@@ -17,6 +17,8 @@ export interface Parcel {
   mevkii?: string;
   ilce?: string;
   il?: string;
+  mahalle?: string;
+  pafta?: string;
   alanM2: number;
   nitelik: string; // Tarla, Zeytinlik, Bağ, Arsa vb.
   birimFiyatTL: number; // m² birim değeri
@@ -30,7 +32,7 @@ export interface Parcel {
 
 export interface HeirBranch {
   id: string;
-  adSoyad: string; // 2. Kuşak kök muris kardeş adı (örn. Ahmet, Mehmet, Fatma)
+  adSoyad: string; // Veraset kolu adı (örn: "1. Veraset Kolu", "Ahmet Kolu")
   kokHisseOrani: string; // Fraction string örn: "1/3"
   aciklama?: string;
 }
@@ -41,7 +43,7 @@ export interface Heir {
   tcKimlik?: string;
   telefon?: string;
   kusak: number; // 2, 3, 4 ...
-  kokMurisKolId: string; // Hangi kardeş koluna bağlı olduğu
+  kokMurisKolId: string; // Hangi veraset koluna bağlı olduğu
   hisseOrani: string; // Fraction string örn: "1/9", "3/72", "1/12"
   hakEdilenTL?: number; // Portföy toplamından aldığı pay
   hakEdilenM2?: number; // Eşdeğer m² hak edişi
@@ -76,7 +78,7 @@ export interface TaksimScenario {
   name: string;
   description: string;
   assignments: Record<string, string[]>; // heirId -> parcelIds[]
-  jointParcels?: Record<string, string[]>; // parcelId -> heirIds[] (kardeş ortaklığı durumunda)
+  jointParcels?: Record<string, string[]>; // parcelId -> heirIds[] (kol ortaklığı durumunda)
   balances: HeirBalance[];
   equalizationItems: EqualizationItem[];
   totalIvazAmountTL: number;
@@ -88,6 +90,9 @@ export interface TaksimScenario {
 export interface ProjectState {
   projectName: string;
   aciklama?: string;
+  rootOwnerName?: string; // 1. Kuşak ilk mülk sahibi adı (örn. "İlk Mülk Sahibi" veya "Mehmet Bey")
+  rootOwnerTitle?: string; // 1. Kuşak unvanı / başlığı (örn. "1. Kuşak · Kök Malik")
+  generationNames?: Record<number, string>; // Kuşak özel isimleri { 1: "1. Kuşak", 2: "2. Kuşak", ... }
   parcels: Parcel[];
   branches: HeirBranch[];
   heirs: Heir[];

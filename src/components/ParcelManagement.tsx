@@ -269,7 +269,8 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="py-2.5 px-4">Ada / Parsel</th>
-                  <th className="py-2.5 px-4">Mevkii</th>
+                  <th className="py-2.5 px-4">İl / İlçe / Mahalle</th>
+                  <th className="py-2.5 px-4">Pafta / Mevkii</th>
                   <th className="py-2.5 px-4">Nitelik</th>
                   <th className="py-2.5 px-4 text-right">Yüzölçümü (m²)</th>
                   <th className="py-2.5 px-4 text-right">Birim Değer (TL/m²)</th>
@@ -282,6 +283,9 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                 {parcels.map((parcel) => {
                   const isSelected = parcel.id === selectedParcelId;
                   const subCount = parcel.subUsageAreas?.length || 0;
+
+                  const locationStr = [parcel.il, parcel.ilce, parcel.mahalle].filter(Boolean).join(' / ') || '-';
+                  const paftaMevkiiStr = [parcel.pafta ? `P: ${parcel.pafta}` : '', parcel.mevkii].filter(Boolean).join(' · ') || '-';
 
                   return (
                     <tr
@@ -296,10 +300,13 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                       <td className="py-2.5 px-4 font-mono font-bold text-slate-900 dark:text-slate-100">
                         {parcel.ada} / {parcel.parselNo}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300">
-                        {parcel.mevkii || '-'}
+                      <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
+                        {locationStr}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300">
+                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400 text-[11px]">
+                        {paftaMevkiiStr}
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300 font-medium">
                         {parcel.nitelik}
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-900 dark:text-slate-100">
@@ -373,12 +380,17 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <form
             onSubmit={handleSaveEdit}
-            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Parsel Bilgilerini Düzenle
-              </h3>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Parsel Kadastro Bilgilerini Düzenle
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  KML'den otomatik tespit edilen veya elle girilen kadastro kayıtları
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setEditingParcel(null)}
@@ -388,14 +400,50 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* İl / İlçe / Mahalle */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">İl</label>
+                <input
+                  type="text"
+                  placeholder="Örn: Ankara"
+                  value={editingParcel.il || ''}
+                  onChange={(e) => setEditingParcel({ ...editingParcel, il: e.target.value })}
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">İlçe</label>
+                <input
+                  type="text"
+                  placeholder="Örn: Çankaya"
+                  value={editingParcel.ilce || ''}
+                  onChange={(e) => setEditingParcel({ ...editingParcel, ilce: e.target.value })}
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Mahalle / Köy</label>
+                <input
+                  type="text"
+                  placeholder="Örn: Beytepe"
+                  value={editingParcel.mahalle || ''}
+                  onChange={(e) => setEditingParcel({ ...editingParcel, mahalle: e.target.value })}
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Ada / Parsel / Pafta */}
+            <div className="grid grid-cols-3 gap-2.5">
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Ada No</label>
                 <input
                   type="text"
+                  placeholder="Örn: 124"
                   value={editingParcel.ada}
                   onChange={(e) => setEditingParcel({ ...editingParcel, ada: e.target.value })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
                   required
                 />
               </div>
@@ -403,28 +451,42 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Parsel No</label>
                 <input
                   type="text"
+                  placeholder="Örn: 15"
                   value={editingParcel.parselNo}
                   onChange={(e) => setEditingParcel({ ...editingParcel, parselNo: e.target.value })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
                   required
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Pafta No</label>
+                <input
+                  type="text"
+                  placeholder="Örn: F29-D-12-C"
+                  value={editingParcel.pafta || ''}
+                  onChange={(e) => setEditingParcel({ ...editingParcel, pafta: e.target.value })}
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
                 />
               </div>
             </div>
 
+            {/* Mevkii / Nitelik */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Mevkii</label>
                 <input
                   type="text"
+                  placeholder="Örn: Bağlaraltı / Köy İçi"
                   value={editingParcel.mevkii || ''}
                   onChange={(e) => setEditingParcel({ ...editingParcel, mevkii: e.target.value })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Nitelik</label>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Nitelik / Cinsi</label>
                 <input
                   type="text"
+                  placeholder="Örn: Tarla, Bağ, Zeytinlik, Arsa"
                   value={editingParcel.nitelik}
                   onChange={(e) => setEditingParcel({ ...editingParcel, nitelik: e.target.value })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
@@ -433,6 +495,7 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
               </div>
             </div>
 
+            {/* Yüzölçümü & Birim Değer */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Yüzölçümü (m²)</label>
@@ -441,7 +504,7 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                   step="any"
                   value={editingParcel.alanM2}
                   onChange={(e) => setEditingParcel({ ...editingParcel, alanM2: parseFloat(e.target.value) || 0 })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
                   required
                 />
               </div>
@@ -451,10 +514,18 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                   type="number"
                   value={editingParcel.birimFiyatTL}
                   onChange={(e) => setEditingParcel({ ...editingParcel, birimFiyatTL: parseFloat(e.target.value) || 0 })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
+                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
                   required
                 />
               </div>
+            </div>
+
+            {/* Calculated Total Değer Banner */}
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900 flex items-center justify-between text-xs">
+              <span className="text-blue-900 dark:text-blue-300 font-medium">Hesaplanan Toplam Rayiç Değer:</span>
+              <strong className="text-sm font-mono text-blue-700 dark:text-blue-400">
+                {formatCurrency((Number(editingParcel.alanM2) || 0) * (Number(editingParcel.birimFiyatTL) || 0))}
+              </strong>
             </div>
 
             <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">

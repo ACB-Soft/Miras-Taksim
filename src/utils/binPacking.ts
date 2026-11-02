@@ -14,7 +14,7 @@ export function runTaksimOptimization(
     return {
       id: 'scen_' + Date.now(),
       mode,
-      name: mode === 'pure_independent' ? 'Tam Müstakil Taksim' : 'Kardeş Ortaklı Taksim',
+      name: mode === 'pure_independent' ? 'Tam Müstakil Taksim' : 'Veraset Kolu Ortaklı Taksim',
       description: 'Hesaplanacak parsel veya mirasçı bulunamadı.',
       assignments: {},
       balances: [],
@@ -295,11 +295,11 @@ export function runTaksimOptimization(
   return {
     id: 'scen_' + Date.now(),
     mode,
-    name: mode === 'pure_independent' ? 'Tam Müstakil Taksim Senaryosu' : 'Kardeş Ortaklı Taksim Senaryosu',
+    name: mode === 'pure_independent' ? 'Tam Müstakil Taksim Senaryosu' : 'Veraset Kolu Ortaklı Taksim Senaryosu',
     description:
       mode === 'pure_independent'
         ? 'Her parsel tek bir müstakil tapuya atanır; aradaki değer farkları nakit ivazla kapatılır.'
-        : 'Gerektiğinde aynı koldan gelen kardeşler bir parsele ortak edilir; nakit ivaz yükü en aza indirilir.',
+        : 'Gerektiğinde aynı veraset kolundaki paydaşlar bir parsele ortak edilir; nakit ivaz yükü en aza indirilir.',
     assignments,
     jointParcels,
     balances,

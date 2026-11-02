@@ -20,27 +20,68 @@ import {
   Table as TableIcon,
   Plus,
   UserCheck,
+  Settings,
+  Shield,
+  Layers,
 } from 'lucide-react';
 
 interface HeirManagementProps {
   heirs: Heir[];
   branches: HeirBranch[];
   parcels: Parcel[];
+  rootOwnerName?: string;
+  rootOwnerTitle?: string;
+  generationNames?: Record<number, string>;
   onUpdateHeirs: (heirs: Heir[]) => void;
   onUpdateBranches: (branches: HeirBranch[]) => void;
+  onUpdateRootOwner?: (name: string, title?: string) => void;
+  onUpdateGenerationNames?: (names: Record<number, string>) => void;
 }
 
 export const HeirManagement: React.FC<HeirManagementProps> = ({
   heirs,
   branches,
   parcels,
+  rootOwnerName = '1. Kuşak Mülk Sahibi',
+  rootOwnerTitle = '1. Kuşak · Kök Malik',
+  generationNames = {
+    1: '1. Kuşak (İlk Mülk Sahibi)',
+    2: '2. Kuşak (Veraset Kolları)',
+    3: '3. Kuşak (Mirasçılar)',
+    4: '4. Kuşak (Mirasçılar)',
+  },
   onUpdateHeirs,
   onUpdateBranches,
+  onUpdateRootOwner,
+  onUpdateGenerationNames,
 }) => {
   const [viewMode, setViewMode] = useState<'tree' | 'table'>('tree');
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingHeir, setEditingHeir] = useState<Heir | null>(null);
+
+  // Root Owner Edit Modal State
+  const [isEditRootModalOpen, setIsEditRootModalOpen] = useState(false);
+  const [rootFormName, setRootFormName] = useState(rootOwnerName);
+  const [rootFormTitle, setRootFormTitle] = useState(rootOwnerTitle);
+
+  // Generation Names Configuration Modal State
+  const [isGenModalOpen, setIsGenModalOpen] = useState(false);
+  const [genInputs, setGenInputs] = useState<Record<number, string>>({
+    1: generationNames[1] || '1. Kuşak (İlk Mülk Sahibi)',
+    2: generationNames[2] || '2. Kuşak (Veraset Kolları)',
+    3: generationNames[3] || '3. Kuşak (Mirasçılar)',
+    4: generationNames[4] || '4. Kuşak (Mirasçılar)',
+    5: generationNames[5] || '5. Kuşak (Mirasçılar)',
+  });
+
+  // Branch Edit Modal State
+  const [editingBranch, setEditingBranch] = useState<HeirBranch | null>(null);
+
+  // Helper to get formatted generation label
+  const getGenerationLabel = (kusak: number): string => {
+    return generationNames[kusak] || `${kusak}. Kuşak`;
+  };
 
   // New Heir Form State
   const [formData, setFormData] = useState<Partial<Heir>>({
@@ -124,15 +165,25 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     }
   };
 
-  // Add a new sibling branch (Kardeş Kolu)
+  // Add a new branch (Veraset Kolu)
   const handleAddBranch = () => {
     const bNum = branches.length + 1;
     const newBranch: HeirBranch = {
       id: `Kol-${bNum}`,
-      adSoyad: `${bNum}. Kardeş Kolu`,
+      adSoyad: `${bNum}. Veraset Kolu`,
       kokHisseOrani: '1/3',
     };
     onUpdateBranches([...branches, newBranch]);
+  };
+
+  // Save Branch Edit
+  const handleSaveBranchEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBranch) return;
+
+    const updated = branches.map((b) => (b.id === editingBranch.id ? editingBranch : b));
+    onUpdateBranches(updated);
+    setEditingBranch(null);
   };
 
   // Remove a branch if no heirs attached
@@ -142,9 +193,27 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
       alert(`Bu kolda ${heirsInBranch.length} kayıtlı mirasçı bulunmaktadır. Önce mirasçıları silmeli veya başka kola taşımalısınız.`);
       return;
     }
-    if (confirm('Bu kardeş kolunu silmek istediğinizden emin misiniz?')) {
+    if (confirm('Bu veraset kolunu silmek istediğinizden emin misiniz?')) {
       onUpdateBranches(branches.filter((b) => b.id !== branchId));
     }
+  };
+
+  // Save Root Owner Info
+  const handleSaveRootOwner = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateRootOwner) {
+      onUpdateRootOwner(rootFormName.trim() || '1. Kuşak Mülk Sahibi', rootFormTitle.trim());
+    }
+    setIsEditRootModalOpen(false);
+  };
+
+  // Save Generation Names
+  const handleSaveGenerationNames = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateGenerationNames) {
+      onUpdateGenerationNames(genInputs);
+    }
+    setIsGenModalOpen(false);
   };
 
   return (
@@ -157,11 +226,30 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             Mirasçı Soyağacı ve Veraset Kütüğü
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Dede (Kök Muris) mirasından kardeş kollarına ve torunlara intikal eden hisseleri soyağacı düzeninde inceleyin ve yönetin.
+            1. Kuşak mülk sahibinden sonraki kuşaklara intikal eden hisseleri soyağacı düzeninde inceleyin ve yönetin.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Generation Names Config Button */}
+          <button
+            onClick={() => {
+              setGenInputs({
+                1: generationNames[1] || '1. Kuşak (İlk Mülk Sahibi)',
+                2: generationNames[2] || '2. Kuşak (Veraset Kolları)',
+                3: generationNames[3] || '3. Kuşak (Mirasçılar)',
+                4: generationNames[4] || '4. Kuşak (Mirasçılar)',
+                5: generationNames[5] || '5. Kuşak (Mirasçılar)',
+              });
+              setIsGenModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-sm"
+            title="Kuşaklara dilediğiniz özel isimleri verin"
+          >
+            <Layers className="w-3.5 h-3.5 text-indigo-600" />
+            Kuşak İsimlerini Düzenle
+          </button>
+
           {/* View Toggle */}
           <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
             <button
@@ -238,7 +326,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search Bar & Branch Action */}
       <div className="flex items-center justify-between gap-4">
         <div className="relative w-full max-w-sm">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
@@ -253,25 +341,40 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
 
         <button
           onClick={handleAddBranch}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition whitespace-nowrap"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap"
         >
           <GitBranch className="w-3.5 h-3.5 text-blue-600" />
-          + Yeni Kardeş Kolu Ekle
+          + Yeni Veraset Kolu Ekle
         </button>
       </div>
 
       {/* VIEW 1: SOYAĞACI (FAMILY TREE) VIEW */}
       {viewMode === 'tree' && (
         <div className="bg-slate-50/50 dark:bg-slate-900/40 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-8 overflow-x-auto">
-          {/* ROOT LEVEL: 1. KUŞAK DEDE / KÖK MURİS */}
+          {/* ROOT LEVEL: 1. KUŞAK İLK MÜLK SAHİBİ */}
           <div className="flex flex-col items-center">
-            <div className="relative z-10 bg-gradient-to-b from-blue-900 to-indigo-950 text-white px-6 py-4 rounded-2xl shadow-lg border border-blue-800 text-center max-w-md w-full">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-200 block">
-                1. Kuşak · Kök Muris
-              </span>
+            <div className="relative z-10 bg-gradient-to-b from-blue-900 to-indigo-950 text-white px-6 py-4 rounded-2xl shadow-lg border border-blue-800 text-center max-w-md w-full group">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-200 block text-left">
+                  {rootOwnerTitle || getGenerationLabel(1)}
+                </span>
+                <button
+                  onClick={() => {
+                    setRootFormName(rootOwnerName);
+                    setRootFormTitle(rootOwnerTitle);
+                    setIsEditRootModalOpen(true);
+                  }}
+                  className="p-1 text-blue-300 hover:text-white rounded hover:bg-blue-800/60 transition"
+                  title="1. Kuşak İlk Mülk Sahibi Bilgilerini Düzenle"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
               <h2 className="text-base font-extrabold tracking-tight mt-0.5">
-                Dede (Mirasbırakan)
+                {rootOwnerName}
               </h2>
+
               <div className="mt-2 pt-2 border-t border-blue-800/80 flex items-center justify-around text-xs font-mono">
                 <div>
                   <span className="text-[10px] text-blue-300 block">Toplam Tereke</span>
@@ -294,7 +397,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             <div className="w-0.5 h-8 bg-blue-300 dark:bg-blue-700" />
           </div>
 
-          {/* LEVEL 2: 2. KUŞAK KARDEŞ KOLLARI VE ONLARA BAĞLI MİRASÇILAR */}
+          {/* LEVEL 2: 2. KUŞAK VERASET KOLLARI VE ONLARA BAĞLI MİRASÇILAR */}
           <div className="relative">
             {/* Horizontal distributor bar across branches */}
             {branches.length > 1 && (
@@ -310,31 +413,36 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                   (acc, h) => acc + (h.hakEdilenTL || 0),
                   0
                 );
-                const branchTotalM2 = branchHeirs.reduce(
-                  (acc, h) => acc + (h.hakEdilenM2 || 0),
-                  0
-                );
 
                 return (
                   <div
                     key={branch.id}
                     className="flex flex-col items-center space-y-4"
                   >
-                    {/* Branch Header Card (2. Kuşak Kardeş) */}
+                    {/* Branch Header Card (2. Kuşak Veraset Kolu) */}
                     <div className="w-full bg-white dark:bg-slate-900 rounded-xl p-4 border border-blue-200 dark:border-blue-900 shadow-sm text-center relative group">
                       <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400">
-                          2. Kuşak Kol {bIdx + 1}
+                          {getGenerationLabel(2)} · Kol {bIdx + 1}
                         </span>
-                        {branchHeirs.length === 0 && (
+                        <div className="flex items-center gap-1">
                           <button
-                            onClick={() => handleDeleteBranch(branch.id)}
-                            className="text-slate-400 hover:text-red-500 p-0.5"
-                            title="Bu boş kolu sil"
+                            onClick={() => setEditingBranch(branch)}
+                            className="p-1 text-slate-400 hover:text-blue-600 transition"
+                            title="Bu veraset kolunun adını ve hissesini düzenle"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Edit3 className="w-3 h-3" />
                           </button>
-                        )}
+                          {branchHeirs.length === 0 && (
+                            <button
+                              onClick={() => handleDeleteBranch(branch.id)}
+                              className="text-slate-400 hover:text-red-500 p-1 transition"
+                              title="Bu boş veraset kolunu sil"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1">
@@ -362,7 +470,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                     {/* Connector line down to heirs */}
                     <div className="w-0.5 h-4 bg-slate-300 dark:bg-slate-700" />
 
-                    {/* Heirs Cards under this branch (3. ve 4. Kuşak) */}
+                    {/* Heirs Cards under this branch */}
                     <div className="w-full space-y-3">
                       {branchHeirs.length === 0 ? (
                         <div className="p-4 bg-white/60 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
@@ -377,7 +485,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <span className="inline-block text-[10px] font-semibold text-slate-500 uppercase">
-                                  {heir.kusak}. Kuşak Mirasçı
+                                  {getGenerationLabel(heir.kusak)}
                                 </span>
                                 <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
                                   {heir.adSoyad}
@@ -465,7 +573,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                     <th className="py-2.5 px-4">Adı Soyadı</th>
                     <th className="py-2.5 px-4">T.C. Kimlik</th>
                     <th className="py-2.5 px-4">Kuşak</th>
-                    <th className="py-2.5 px-4">Kök Kol</th>
+                    <th className="py-2.5 px-4">Veraset Kolu</th>
                     <th className="py-2.5 px-4 text-center font-mono">Hisse Oranı</th>
                     <th className="py-2.5 px-4 text-right font-mono">Eşdeğer Alan (m²)</th>
                     <th className="py-2.5 px-4 text-right font-mono">Hak Edilen Değer (TL)</th>
@@ -488,7 +596,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                           {heir.tcKimlik || '-'}
                         </td>
                         <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
-                          {heir.kusak}. Kuşak
+                          {getGenerationLabel(heir.kusak)}
                         </td>
                         <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
                           {branch ? branch.adSoyad : heir.kokMurisKolId}
@@ -528,7 +636,198 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         </div>
       )}
 
-      {/* Add Heir Modal */}
+      {/* Modal 1: 1. Kuşak İlk Mülk Sahibi Düzenleme Modalı */}
+      {isEditRootModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form
+            onSubmit={handleSaveRootOwner}
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-blue-600" />
+                1. Kuşak Mülk Sahibi Bilgileri
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsEditRootModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                1. Kuşak Mülk Sahibi Adı
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: Ahmet Yılmaz, İlk Mülk Sahibi"
+                value={rootFormName}
+                onChange={(e) => setRootFormName(e.target.value)}
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold"
+                required
+              />
+              <span className="text-[10px] text-slate-400 block mt-1">
+                Soyağacının tepesinde yer alacak 1. kuşak mülk sahibinin ismi.
+              </span>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                Kuşak Başlığı / Etiketi
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: 1. Kuşak · Kök Malik"
+                value={rootFormTitle}
+                onChange={(e) => setRootFormTitle(e.target.value)}
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsEditRootModalOpen(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Kaydet
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal 2: Kuşak İsimlerini Düzenleme Modalı */}
+      {isGenModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form
+            onSubmit={handleSaveGenerationNames}
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-indigo-600" />
+                Kuşak İsimlerini Özelleştir
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsGenModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Her kuşağa özel bir isim veya tanım belirleyebilirsiniz. Tanımladığınız isimler soyağacı, tablolar ve formlarda otomatik görünecektir.
+            </p>
+
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map((kNum) => (
+                <div key={kNum} className="flex items-center gap-3">
+                  <span className="w-20 text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {kNum}. Kuşak:
+                  </span>
+                  <input
+                    type="text"
+                    value={genInputs[kNum] || ''}
+                    placeholder={`${kNum}. Kuşak`}
+                    onChange={(e) =>
+                      setGenInputs({
+                        ...genInputs,
+                        [kNum]: e.target.value,
+                      })
+                    }
+                    className="flex-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsGenModalOpen(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Kuşak İsimlerini Kaydet
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal 3: Veraset Kolu Düzenleme Modalı */}
+      {editingBranch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form
+            onSubmit={handleSaveBranchEdit}
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                Veraset Kolunu Düzenle
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingBranch(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                Veraset Kolu Adı
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: 1. Veraset Kolu, Ahmet Kolu"
+                value={editingBranch.adSoyad}
+                onChange={(e) =>
+                  setEditingBranch({ ...editingBranch, adSoyad: e.target.value })
+                }
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                required
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setEditingBranch(null)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Kaydet
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal 4: Yeni Mirasçı Ekle Modalı */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <form
@@ -586,9 +885,10 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                   onChange={(e) => setFormData({ ...formData, kusak: Number(e.target.value) })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                 >
-                  <option value={2}>2. Kuşak (Kardeş)</option>
-                  <option value={3}>3. Kuşak (Çocuk / Torun)</option>
-                  <option value={4}>4. Kuşak (Torun Çocuğu)</option>
+                  <option value={2}>{getGenerationLabel(2)}</option>
+                  <option value={3}>{getGenerationLabel(3)}</option>
+                  <option value={4}>{getGenerationLabel(4)}</option>
+                  <option value={5}>{getGenerationLabel(5)}</option>
                 </select>
               </div>
             </div>
@@ -596,7 +896,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Kök Muris Kolu
+                  Veraset Kolu
                 </label>
                 <select
                   value={formData.kokMurisKolId}
@@ -645,7 +945,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         </div>
       )}
 
-      {/* Edit Heir Modal */}
+      {/* Modal 5: Mirasçı Bilgilerini Düzenle Modalı */}
       {editingHeir && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <form
@@ -701,9 +1001,10 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                   onChange={(e) => setEditingHeir({ ...editingHeir, kusak: Number(e.target.value) })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                 >
-                  <option value={2}>2. Kuşak (Kardeş)</option>
-                  <option value={3}>3. Kuşak (Çocuk / Torun)</option>
-                  <option value={4}>4. Kuşak (Torun Çocuğu)</option>
+                  <option value={2}>{getGenerationLabel(2)}</option>
+                  <option value={3}>{getGenerationLabel(3)}</option>
+                  <option value={4}>{getGenerationLabel(4)}</option>
+                  <option value={5}>{getGenerationLabel(5)}</option>
                 </select>
               </div>
             </div>
@@ -711,7 +1012,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Kök Muris Kolu
+                  Veraset Kolu
                 </label>
                 <select
                   value={editingHeir.kokMurisKolId}

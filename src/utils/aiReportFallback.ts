@@ -14,7 +14,7 @@ export function generateLocalTaksimReport(
   const modeName =
     scenario.mode === 'pure_independent'
       ? 'Tam Müstakil Taksim (Her parsele tek malik)'
-      : 'Kardeş Ortaklı Taksim (Aynı koldaki kardeşler paydaş)';
+      : 'Veraset Kolu Ortaklı Taksim (Aynı veraset kolundaki paydaşlar)';
 
   const debtors = scenario.balances.filter((b) => b.durum === 'borclu');
   const creditors = scenario.balances.filter((b) => b.durum === 'alacakli');
@@ -35,11 +35,11 @@ export function generateLocalTaksimReport(
 - Toplam ${heirs.length} mirasçıdan ${exacts.length} kişinin hak edişi parsel değerlerine tam denk gelmiş, ${debtors.length} mirasçı hak edişinden fazla parsel alarak ivaz borçlusu konumuna geçmiş, ${creditors.length} mirasçı ise hak edişinden eksik parsel alarak ivaz alacaklısı olmuştur.
 - Dağıtım, bölünmez parsel bütünlüğü ilkesi (Bin-Packing) doğrultusunda matematiksel olarak optimize edilmiş olup, hisselerin keyfi değil objektif değerleme kriterlerine göre paylaştırıldığı tespit edilmiştir.
 
-#### 2. Kök Mirasçılar (Kardeş Kolları) Bazında Coğrafi ve Mülkiyet Bütünlüğü
-- Paylaşımda her bir kök muris kolunun (2. kuşak kardeşlerin) toplam veraset hak edişi korunmuştur.
+#### 2. Kök Mirasçılar (Veraset Kolları) Bazında Coğrafi ve Mülkiyet Bütünlüğü
+- Paylaşımda her bir kök veraset kolunun (2. kuşak kollarının) toplam veraset hak edişi korunmuştur.
 - ${
     scenario.mode === 'sibling_consolidation'
-      ? 'Kardeş Ortaklığı Modeli benimsenerek, yüksek değerli veya bölünemeyen parseller aynı koldan gelen kardeşler arasında müşterek mülkiyete tahsis edilmiştir. Bu sayede hem aile içi mülkiyet birliği korunmuş hem de dışarıya nakit ödeme zorunluluğu en aza indirilmiştir.'
+      ? 'Veraset Kolu Ortaklığı Modeli benimsenerek, yüksek değerli veya bölünemeyen parseller aynı koldan gelen paydaşlar arasında müşterek mülkiyete tahsis edilmiştir. Bu sayede hem aile içi mülkiyet birliği korunmuş hem de dışarıya nakit ödeme zorunluluğu en aza indirilmiştir.'
       : 'Tam Müstakil Taksim tercih edilmiş olup her parsel münhasıran tek bir mirasçıya verilmiştir. Paylı mülkiyet tamamen tasfiye edilmiş, bağımsız müstakil tasarruf imkanı sağlanmıştır.'
   }
 

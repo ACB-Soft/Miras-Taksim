@@ -11,8 +11,12 @@ export function generateConditionalNotaryPowerOfAttorney(
   vekilName: string = '[VEKİL TAYİN EDİLEN MİRASÇI ADI SOYADI / AVUKAT]'
 ): string {
   const parcelRows = assignedParcels.map(
-    (p, idx) =>
-      `  ${idx + 1}. Ada: ${p.ada}, Parsel: ${p.parselNo}, Mevkii: ${p.mevkii || '-'}, Alan: ${formatArea(p.alanM2)}, Nitelik: ${p.nitelik}, Taksim Değeri: ${formatCurrency(p.toplamDegerTL)}`
+    (p, idx) => {
+      const loc = [p.il, p.ilce, p.mahalle].filter(Boolean).join('/');
+      const locStr = loc ? ` (Konum: ${loc})` : '';
+      const paftaStr = p.pafta ? `, Pafta: ${p.pafta}` : '';
+      return `  ${idx + 1}. Ada: ${p.ada}, Parsel: ${p.parselNo}${paftaStr}${locStr}, Mevkii: ${p.mevkii || '-'}, Alan: ${formatArea(p.alanM2)}, Nitelik: ${p.nitelik}, Taksim Değeri: ${formatCurrency(p.toplamDegerTL)}`;
+    }
   ).join('\n');
 
   return `
@@ -170,8 +174,9 @@ TAŞINMAZ FİİLİ KULLANIM VE RIZAI TAKSİM SÖZLEŞMESİ
 (KULLANIM SINIRLARI KROKİSİ VE KOORDİNAT CETVELİ EKİ İLE BİRLİKTE)
 
 ANA TAŞINMAZ BİLGİLERİ:
-- İl / İlçe / Mevkii : ${parcel.il || '-' } / ${parcel.ilce || '-'} / ${parcel.mevkii || '-'}
-- Ada / Parsel No     : ${parcel.ada} / ${parcel.parselNo}
+- İl / İlçe / Mahalle : ${parcel.il || '-' } / ${parcel.ilce || '-'} / ${parcel.mahalle || '-'}
+- Ada / Parsel / Pafta : ${parcel.ada} / ${parcel.parselNo} / ${parcel.pafta || '-'}
+- Mevkii              : ${parcel.mevkii || '-'}
 - Toplam Yüzölçümü   : ${formatArea(parcel.alanM2)}
 - Taşınmazın Niteliği: ${parcel.nitelik}
 - Düzenlenme Tarihi  : ${currentDate}
