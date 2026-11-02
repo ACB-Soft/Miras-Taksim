@@ -5,7 +5,12 @@ import {
   computeHeirEntitlements,
   formatCurrency,
   formatArea,
+  calculateNetShareFromRelative,
+  calculateRelativeShareFromNet,
+  calculateBranchInternalShares,
+  parseFraction,
 } from '../utils/fractionEngine';
+import Fraction from 'fraction.js';
 import {
   Users,
   UserPlus,
@@ -19,10 +24,10 @@ import {
   Network,
   Table as TableIcon,
   Plus,
-  UserCheck,
-  Settings,
-  Shield,
   Layers,
+  Calculator,
+  ArrowRight,
+  Shield,
 } from 'lucide-react';
 
 interface HeirManagementProps {
@@ -36,6 +41,17 @@ interface HeirManagementProps {
   onUpdateBranches: (branches: HeirBranch[]) => void;
   onUpdateRootOwner?: (name: string, title?: string) => void;
   onUpdateGenerationNames?: (names: Record<number, string>) => void;
+}
+
+interface HeirFormData {
+  adSoyad: string;
+  tcKimlik: string;
+  telefon: string;
+  kusak: number;
+  kokMurisKolId: string;
+  calcMode: 'relative' | 'direct';
+  kolIciPayOrani: string;
+  hisseOrani: string;
 }
 
 export const HeirManagement: React.FC<HeirManagementProps> = ({
@@ -83,14 +99,39 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     return generationNames[kusak] || `${kusak}. Kuşak`;
   };
 
+  // Helper: Find branch root fraction
+  const getBranchRootFraction = (branchId: string): string => {
+    const br = branches.find((b) => b.id === branchId);
+    return br?.kokHisseOrani || '1/3';
+  };
+
   // New Heir Form State
-  const [formData, setFormData] = useState<Partial<Heir>>({
+  const initialBranchId = branches[0]?.id || 'Kol-1';
+  const initialBranchRoot = getBranchRootFraction(initialBranchId);
+  const initialRelativeShare = '1/2';
+  const initialNetShare = calculateNetShareFromRelative(initialBranchRoot, initialRelativeShare);
+
+  const [formData, setFormData] = useState<HeirFormData>({
     adSoyad: '',
     tcKimlik: '',
     telefon: '',
     kusak: 3,
-    kokMurisKolId: branches[0]?.id || 'Kol-1',
-    hisseOrani: '1/9',
+    kokMurisKolId: initialBranchId,
+    calcMode: 'relative',
+    kolIciPayOrani: initialRelativeShare,
+    hisseOrani: initialNetShare,
+  });
+
+  // Edit Heir Form Local State
+  const [editFormData, setEditFormData] = useState<HeirFormData>({
+    adSoyad: '',
+    tcKimlik: '',
+    telefon: '',
+    kusak: 3,
+    kokMurisKolId: initialBranchId,
+    calcMode: 'relative',
+    kolIciPayOrani: '1/2',
+    hisseOrani: '1/6',
   });
 
   // Calculate Fraction Statistics & Dynamic Entitlements
@@ -108,17 +149,127 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     return matchesSearch;
   });
 
-  // Open add modal pre-selecting a specific branch
+  // Open add modal pre-selecting a specific branch and calculating remaining share
   const handleOpenAddForBranch = (branchId: string) => {
+    const br = branches.find((b) => b.id === branchId);
+    const branchRoot = br?.kokHisseOrani || '1/3';
+    const heirsInBranch = heirs.filter((h) => h.kokMurisKolId === branchId);
+    const branchStats = calculateBranchInternalShares(heirsInBranch, branchRoot);
+
+    // If remaining share exists in branch, default to it, otherwise default to 1/2
+    let defaultRelative = '1/2';
+    const one = new Fraction(1);
+    const remaining = one.sub(branchStats.totalInternalFraction);
+    if (remaining.valueOf() > 0 && remaining.valueOf() <= 1) {
+      defaultRelative = remaining.toFraction(true);
+    }
+
+    const calculatedNet = calculateNetShareFromRelative(branchRoot, defaultRelative);
+
     setFormData({
       adSoyad: '',
       tcKimlik: '',
       telefon: '',
       kusak: 3,
       kokMurisKolId: branchId,
-      hisseOrani: '1/9',
+      calcMode: 'relative',
+      kolIciPayOrani: defaultRelative,
+      hisseOrani: calculatedNet,
     });
     setIsAddModalOpen(true);
+  };
+
+  // When changing branch or relative share in Add Form
+  const handleFormDataBranchChange = (branchId: string) => {
+    const branchRoot = getBranchRootFraction(branchId);
+    let net = formData.hisseOrani;
+    if (formData.calcMode === 'relative') {
+      net = calculateNetShareFromRelative(branchRoot, formData.kolIciPayOrani || '1/1');
+    } else {
+      const rel = calculateRelativeShareFromNet(formData.hisseOrani || '1/6', branchRoot);
+      setFormData((prev) => ({
+        ...prev,
+        kokMurisKolId: branchId,
+        kolIciPayOrani: rel,
+      }));
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      kokMurisKolId: branchId,
+      hisseOrani: net,
+    }));
+  };
+
+  const handleFormDataRelativeShareChange = (relShare: string) => {
+    const branchRoot = getBranchRootFraction(formData.kokMurisKolId);
+    const net = calculateNetShareFromRelative(branchRoot, relShare);
+    setFormData((prev) => ({
+      ...prev,
+      kolIciPayOrani: relShare,
+      hisseOrani: net,
+    }));
+  };
+
+  const handleFormDataDirectNetShareChange = (netShare: string) => {
+    const branchRoot = getBranchRootFraction(formData.kokMurisKolId);
+    const rel = calculateRelativeShareFromNet(netShare, branchRoot);
+    setFormData((prev) => ({
+      ...prev,
+      hisseOrani: netShare,
+      kolIciPayOrani: rel,
+    }));
+  };
+
+  // Open Edit Modal for Heir
+  const handleOpenEditHeir = (heir: Heir) => {
+    setEditingHeir(heir);
+    const branchRoot = getBranchRootFraction(heir.kokMurisKolId);
+    const relShare = heir.kolIciPayOrani || calculateRelativeShareFromNet(heir.hisseOrani, branchRoot);
+
+    setEditFormData({
+      adSoyad: heir.adSoyad,
+      tcKimlik: heir.tcKimlik || '',
+      telefon: heir.telefon || '',
+      kusak: heir.kusak,
+      kokMurisKolId: heir.kokMurisKolId,
+      calcMode: 'relative',
+      kolIciPayOrani: relShare,
+      hisseOrani: heir.hisseOrani,
+    });
+  };
+
+  const handleEditBranchChange = (branchId: string) => {
+    const branchRoot = getBranchRootFraction(branchId);
+    let net = editFormData.hisseOrani;
+    if (editFormData.calcMode === 'relative') {
+      net = calculateNetShareFromRelative(branchRoot, editFormData.kolIciPayOrani || '1/1');
+    }
+    setEditFormData((prev) => ({
+      ...prev,
+      kokMurisKolId: branchId,
+      hisseOrani: net,
+    }));
+  };
+
+  const handleEditRelativeShareChange = (relShare: string) => {
+    const branchRoot = getBranchRootFraction(editFormData.kokMurisKolId);
+    const net = calculateNetShareFromRelative(branchRoot, relShare);
+    setEditFormData((prev) => ({
+      ...prev,
+      kolIciPayOrani: relShare,
+      hisseOrani: net,
+    }));
+  };
+
+  const handleEditDirectNetShareChange = (netShare: string) => {
+    const branchRoot = getBranchRootFraction(editFormData.kokMurisKolId);
+    const rel = calculateRelativeShareFromNet(netShare, branchRoot);
+    setEditFormData((prev) => ({
+      ...prev,
+      hisseOrani: netShare,
+      kolIciPayOrani: rel,
+    }));
   };
 
   // Save New Heir
@@ -133,19 +284,12 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
       telefon: formData.telefon?.trim() || '',
       kusak: Number(formData.kusak) || 3,
       kokMurisKolId: formData.kokMurisKolId || branches[0]?.id || 'Kol-1',
+      kolIciPayOrani: formData.kolIciPayOrani.trim(),
       hisseOrani: formData.hisseOrani.trim(),
     };
 
     onUpdateHeirs([...heirs, newHeir]);
     setIsAddModalOpen(false);
-    setFormData({
-      adSoyad: '',
-      tcKimlik: '',
-      telefon: '',
-      kusak: 3,
-      kokMurisKolId: branches[0]?.id || 'Kol-1',
-      hisseOrani: '1/9',
-    });
   };
 
   // Save Edit Heir
@@ -153,7 +297,20 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     e.preventDefault();
     if (!editingHeir) return;
 
-    const updated = heirs.map((h) => (h.id === editingHeir.id ? editingHeir : h));
+    const updated = heirs.map((h) =>
+      h.id === editingHeir.id
+        ? {
+            ...h,
+            adSoyad: editFormData.adSoyad.trim(),
+            tcKimlik: editFormData.tcKimlik?.trim() || '',
+            telefon: editFormData.telefon?.trim() || '',
+            kusak: Number(editFormData.kusak) || 3,
+            kokMurisKolId: editFormData.kokMurisKolId,
+            kolIciPayOrani: editFormData.kolIciPayOrani.trim(),
+            hisseOrani: editFormData.hisseOrani.trim(),
+          }
+        : h
+    );
     onUpdateHeirs(updated);
     setEditingHeir(null);
   };
@@ -176,7 +333,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     onUpdateBranches([...branches, newBranch]);
   };
 
-  // Save Branch Edit
+  // Save Branch Edit (both name and root fraction)
   const handleSaveBranchEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBranch) return;
@@ -223,10 +380,10 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Network className="w-5 h-5 text-blue-600" />
-            Mirasçı Soyağacı ve Veraset Kütüğü
+            Mirasçı Soyağacı ve Kademeli Hisse Matrisi
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            1. Kuşak mülk sahibinden sonraki kuşaklara intikal eden hisseleri soyağacı düzeninde inceleyin ve yönetin.
+            1. Kuşaktan 2. Kuşak veraset kollarına ve sonraki kuşaklara intikal eden hisseleri kademeli matematiksel çarpımla otomatik hesaplayın.
           </p>
         </div>
 
@@ -277,7 +434,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
           </div>
 
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => handleOpenAddForBranch(branches[0]?.id || 'Kol-1')}
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm whitespace-nowrap"
           >
             <UserPlus className="w-4 h-4" />
@@ -303,12 +460,12 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
           <div>
             <div className="font-bold text-sm">
               {shareStats.isComplete
-                ? 'Hisse Dağılımı Tam ve Doğrulanmış (1/1 = %100)'
-                : `Hisse Toplamı: ${shareStats.totalString} (%${shareStats.percentage})`}
+                ? 'Genel Portföy Hisse Dağılımı Tam ve Doğrulanmış (1/1 = %100)'
+                : `Toplam Hisse Dağılımı: ${shareStats.totalString} (%${shareStats.percentage})`}
             </div>
             <div className="text-[11px] mt-0.5 opacity-90">
               {shareStats.isComplete
-                ? 'Tüm mirasçıların rasyonel hisse toplamı tam 1/1 (bütün) etmekte, matematiksel yuvarlama hatası bulunmamaktadır.'
+                ? 'Tüm mirasçıların rasyonel hisse toplamı tam 1/1 bütün etmekte, yuvarlama hatası bulunmamaktadır.'
                 : `Hisse toplamı 1 tam etmemektedir. Kalan/Fark: ${shareStats.differenceFraction.toFraction(true)}`}
             </div>
           </div>
@@ -414,6 +571,12 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                   0
                 );
 
+                // Internal distribution stats for this branch
+                const branchStats = calculateBranchInternalShares(
+                  branchHeirs,
+                  branch.kokHisseOrani
+                );
+
                 return (
                   <div
                     key={branch.id}
@@ -429,9 +592,9 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                           <button
                             onClick={() => setEditingBranch(branch)}
                             className="p-1 text-slate-400 hover:text-blue-600 transition"
-                            title="Bu veraset kolunun adını ve hissesini düzenle"
+                            title="Bu veraset kolunun adını ve kök hissesini düzenle"
                           >
-                            <Edit3 className="w-3 h-3" />
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           {branchHeirs.length === 0 && (
                             <button
@@ -439,7 +602,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                               className="text-slate-400 hover:text-red-500 p-1 transition"
                               title="Bu boş veraset kolunu sil"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -449,7 +612,45 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                         {branch.adSoyad}
                       </h3>
 
-                      <div className="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center justify-around bg-slate-50 dark:bg-slate-800/60 py-1.5 rounded-lg">
+                      {/* Branch Root Share Badge */}
+                      <div className="mt-1 flex items-center justify-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          Kök Hisse: {branch.kokHisseOrani}
+                          <span className="text-[10px] font-normal opacity-75">
+                            (%{Math.round(parseFraction(branch.kokHisseOrani).valueOf() * 1000) / 10})
+                          </span>
+                        </span>
+                      </div>
+
+                      {/* Internal Branch Distribution Status */}
+                      <div className="mt-2.5 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-[11px]">
+                        <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                          <span>Kol İçi Pay Dağılımı:</span>
+                          <span
+                            className={`font-mono font-bold ${
+                              branchStats.isComplete
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                            }`}
+                          >
+                            {branchStats.totalInternalString} (%{branchStats.percentage})
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-right font-medium text-slate-500">
+                          {branchStats.isComplete ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Kol hissesi eksiksiz paylaştırıldı
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 dark:text-amber-400">
+                              Kalan Pay: {new Fraction(1).sub(branchStats.totalInternalFraction).toFraction(true)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center justify-around bg-slate-50/50 dark:bg-slate-800/40 py-1.5 rounded-lg">
                         <span>{branchHeirs.length} Mirasçı</span>
                         <span>·</span>
                         <span className="font-bold text-blue-700 dark:text-blue-300">
@@ -477,69 +678,100 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                           Bu kolda henüz mirasçı bulunmuyor.
                         </div>
                       ) : (
-                        branchHeirs.map((heir) => (
-                          <div
-                            key={heir.id}
-                            className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-blue-300 dark:hover:border-blue-700 transition relative"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <span className="inline-block text-[10px] font-semibold text-slate-500 uppercase">
-                                  {getGenerationLabel(heir.kusak)}
-                                </span>
-                                <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                                  {heir.adSoyad}
-                                </h4>
-                                {heir.tcKimlik && (
-                                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                                    T.C.: {heir.tcKimlik}
+                        branchHeirs.map((heir) => {
+                          const relDisplay = heir.kolIciPayOrani || calculateRelativeShareFromNet(heir.hisseOrani, branch.kokHisseOrani);
+
+                          return (
+                            <div
+                              key={heir.id}
+                              className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-blue-300 dark:hover:border-blue-700 transition relative"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <span className="inline-block text-[10px] font-semibold text-slate-500 uppercase">
+                                    {getGenerationLabel(heir.kusak)}
+                                  </span>
+                                  <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                                    {heir.adSoyad}
+                                  </h4>
+                                  {heir.tcKimlik && (
+                                    <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                                      T.C.: {heir.tcKimlik}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => handleOpenEditHeir(heir)}
+                                    className="p-1 text-slate-400 hover:text-blue-600 transition"
+                                    title="Düzenle"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteHeir(heir.id)}
+                                    className="p-1 text-slate-400 hover:text-red-600 transition"
+                                    title="Sil"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Hierarchical Fraction Badge & Calculation Breakdown */}
+                              <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center justify-between text-xs font-mono">
+                                  <div>
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      Koldaki Payı
+                                    </span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                                      {relDisplay}
+                                    </span>
                                   </div>
-                                )}
+
+                                  <div className="text-right">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      Net Portföy Hissesi
+                                    </span>
+                                    <span className="font-bold text-blue-700 dark:text-blue-400 text-sm">
+                                      {heir.hisseOrani}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Math Trace formula */}
+                                <div className="mt-1 text-[10px] font-mono text-slate-500 bg-slate-50 dark:bg-slate-800/50 px-2 py-0.5 rounded flex items-center justify-between">
+                                  <span>Hesap:</span>
+                                  <span className="text-blue-600 dark:text-blue-400">
+                                    {branch.kokHisseOrani} (Kol) × {relDisplay} (Pay) = {heir.hisseOrani}
+                                  </span>
+                                </div>
                               </div>
 
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  onClick={() => setEditingHeir(heir)}
-                                  className="p-1 text-slate-400 hover:text-blue-600 transition"
-                                  title="Düzenle"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteHeir(heir.id)}
-                                  className="p-1 text-slate-400 hover:text-red-600 transition"
-                                  title="Sil"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                              <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-mono">
+                                <div>
+                                  <span className="text-[10px] text-slate-400 block font-sans">
+                                    Eşdeğer Alan
+                                  </span>
+                                  <span className="text-slate-700 dark:text-slate-300">
+                                    {formatArea(heir.hakEdilenM2 || 0)}
+                                  </span>
+                                </div>
+
+                                <div className="text-right">
+                                  <span className="text-[10px] text-slate-400 block font-sans">
+                                    Hak Ediş Tutarı
+                                  </span>
+                                  <span className="font-bold text-slate-900 dark:text-slate-100">
+                                    {formatCurrency(heir.hakEdilenTL || 0)}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-
-                            <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-mono">
-                              <div>
-                                <span className="text-[10px] text-slate-400 block font-sans">
-                                  Hisse Oranı
-                                </span>
-                                <span className="font-bold text-blue-700 dark:text-blue-400">
-                                  {heir.hisseOrani}
-                                </span>
-                              </div>
-
-                              <div className="text-right">
-                                <span className="text-[10px] text-slate-400 block font-sans">
-                                  Hak Ediş Tutarı
-                                </span>
-                                <span className="font-bold text-slate-900 dark:text-slate-100">
-                                  {formatCurrency(heir.hakEdilenTL || 0)}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="mt-1 text-[10px] text-slate-500 font-mono text-right">
-                              Eşdeğer Alan: {formatArea(heir.hakEdilenM2 || 0)}
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -555,7 +787,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Mirasçı Kütüğü ve Hak Ediş Cetveli ({filteredHeirs.length})
+              Mirasçı Kütüğü ve Kademeli Hak Ediş Cetveli ({filteredHeirs.length})
             </h2>
           </div>
 
@@ -573,8 +805,9 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                     <th className="py-2.5 px-4">Adı Soyadı</th>
                     <th className="py-2.5 px-4">T.C. Kimlik</th>
                     <th className="py-2.5 px-4">Kuşak</th>
-                    <th className="py-2.5 px-4">Veraset Kolu</th>
-                    <th className="py-2.5 px-4 text-center font-mono">Hisse Oranı</th>
+                    <th className="py-2.5 px-4">Veraset Kolu & Kök Pay</th>
+                    <th className="py-2.5 px-4 text-center font-mono">Koldaki Payı</th>
+                    <th className="py-2.5 px-4 text-center font-mono text-blue-700 dark:text-blue-400">Net Tapu Hissesi</th>
                     <th className="py-2.5 px-4 text-right font-mono">Eşdeğer Alan (m²)</th>
                     <th className="py-2.5 px-4 text-right font-mono">Hak Edilen Değer (TL)</th>
                     <th className="py-2.5 px-4 text-right">İşlemler</th>
@@ -583,6 +816,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredHeirs.map((heir) => {
                     const branch = branches.find((b) => b.id === heir.kokMurisKolId);
+                    const relDisplay = heir.kolIciPayOrani || (branch ? calculateRelativeShareFromNet(heir.hisseOrani, branch.kokHisseOrani) : '-');
 
                     return (
                       <tr
@@ -599,9 +833,21 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                           {getGenerationLabel(heir.kusak)}
                         </td>
                         <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
-                          {branch ? branch.adSoyad : heir.kokMurisKolId}
+                          {branch ? (
+                            <span>
+                              {branch.adSoyad}{' '}
+                              <strong className="text-slate-900 dark:text-slate-100 font-mono">
+                                ({branch.kokHisseOrani})
+                              </strong>
+                            </span>
+                          ) : (
+                            heir.kokMurisKolId
+                          )}
                         </td>
-                        <td className="py-2.5 px-4 text-center font-mono font-bold text-blue-700 dark:text-blue-400">
+                        <td className="py-2.5 px-4 text-center font-mono font-medium text-slate-800 dark:text-slate-200">
+                          {relDisplay}
+                        </td>
+                        <td className="py-2.5 px-4 text-center font-mono font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/20">
                           {heir.hisseOrani}
                         </td>
                         <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
@@ -612,7 +858,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                         </td>
                         <td className="py-2.5 px-4 text-right space-x-1.5 whitespace-nowrap">
                           <button
-                            onClick={() => setEditingHeir(heir)}
+                            onClick={() => handleOpenEditHeir(heir)}
                             className="p-1 text-slate-400 hover:text-blue-600 transition"
                             title="Düzenle"
                           >
@@ -669,9 +915,6 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold"
                 required
               />
-              <span className="text-[10px] text-slate-400 block mt-1">
-                Soyağacının tepesinde yer alacak 1. kuşak mülk sahibinin ismi.
-              </span>
             </div>
 
             <div>
@@ -728,7 +971,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             </div>
 
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Her kuşağa özel bir isim veya tanım belirleyebilirsiniz. Tanımladığınız isimler soyağacı, tablolar ve formlarda otomatik görünecektir.
+              Her kuşağa özel isim belirleyebilirsiniz.
             </p>
 
             <div className="space-y-3">
@@ -772,7 +1015,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         </div>
       )}
 
-      {/* Modal 3: Veraset Kolu Düzenleme Modalı */}
+      {/* Modal 3: Veraset Kolu Düzenleme Modalı (Adı ve Kök Hissesi) */}
       {editingBranch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <form
@@ -780,8 +1023,9 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
           >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Veraset Kolunu Düzenle
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-blue-600" />
+                Veraset Kolunu ve Kök Hissesini Düzenle
               </h3>
               <button
                 type="button"
@@ -803,9 +1047,28 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 onChange={(e) =>
                   setEditingBranch({ ...editingBranch, adSoyad: e.target.value })
                 }
-                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold"
                 required
               />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                Kök Hisse Oranı (Kesir)
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: 1/3, 1/4, 2/7"
+                value={editingBranch.kokHisseOrani}
+                onChange={(e) =>
+                  setEditingBranch({ ...editingBranch, kokHisseOrani: e.target.value })
+                }
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
+                required
+              />
+              <span className="text-[10px] text-slate-400 block mt-1">
+                Bu kolun 1. Kuşaktan aldığı toplam kök hissesidir (örn: 1/3). Bu oran değiştirildiğinde, bu kola bağlı mirasçıların net hisseleri otomatik olarak güncellenir.
+              </span>
             </div>
 
             <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
@@ -820,23 +1083,24 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 type="submit"
                 className="px-4 py-1.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
               >
-                Kaydet
+                Kaydet ve Güncelle
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Modal 4: Yeni Mirasçı Ekle Modalı */}
+      {/* Modal 4: Yeni Mirasçı Ekle Modalı (Kademeli Hisse Çarpımı ile) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
           <form
             onSubmit={handleCreateHeir}
-            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 my-8"
           >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Yeni Mirasçı Ekle
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-blue-600" />
+                Yeni Mirasçı Ekle (Kademeli Hisse Hesabı)
               </h3>
               <button
                 type="button"
@@ -856,7 +1120,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 placeholder="Örn: Ahmet Yılmaz"
                 value={formData.adSoyad}
                 onChange={(e) => setFormData({ ...formData, adSoyad: e.target.value })}
-                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold"
                 required
               />
             </div>
@@ -893,36 +1157,130 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Veraset Kolu
-                </label>
-                <select
-                  value={formData.kokMurisKolId}
-                  onChange={(e) => setFormData({ ...formData, kokMurisKolId: e.target.value })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                >
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.adSoyad}
-                    </option>
-                  ))}
-                </select>
+            {/* Branch Selection */}
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                Bağlı Olduğu Veraset Kolu
+              </label>
+              <select
+                value={formData.kokMurisKolId}
+                onChange={(e) => handleFormDataBranchChange(e.target.value)}
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-blue-700 dark:text-blue-400"
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.adSoyad} (Kök Hisse: {b.kokHisseOrani})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Kademeli Hisse Giriş ve Canlı Hesaplama Kartı */}
+            <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                  <Calculator className="w-3.5 h-3.5 text-blue-600" />
+                  Kademeli Hisse Çarpımı
+                </span>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, calcMode: 'relative' })}
+                    className={`px-2 py-0.5 rounded font-medium transition ${
+                      formData.calcMode === 'relative'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Koldaki Payı Gir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, calcMode: 'direct' })}
+                    className={`px-2 py-0.5 rounded font-medium transition ${
+                      formData.calcMode === 'direct'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Doğrudan Net Hisse Gir
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Hisse Oranı (Kesir)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Örn: 1/9, 3/72, 1/12, 1/3, 2/3"
-                  value={formData.hisseOrani}
-                  onChange={(e) => setFormData({ ...formData, hisseOrani: e.target.value })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                {formData.calcMode === 'relative' ? (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Koldaki Miras Payı (Kesir)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Örn: 1/2, 1/3, 2/5"
+                        value={formData.kolIciPayOrani}
+                        onChange={(e) => handleFormDataRelativeShareChange(e.target.value)}
+                        className="w-full mt-1 p-2 text-xs rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 font-mono font-bold text-blue-800 dark:text-blue-200"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Otomatik Net Tapu Hissesi
+                      </label>
+                      <div className="w-full mt-1 p-2 text-xs rounded border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 font-mono font-extrabold text-emerald-800 dark:text-emerald-200 flex items-center justify-between">
+                        <span>{formData.hisseOrani || '-'}</span>
+                        <span className="text-[10px] opacity-75">
+                          (%{Math.round(parseFraction(formData.hisseOrani).valueOf() * 10000) / 100})
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Doğrudan Net Tapu Hissesi
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Örn: 1/6, 1/9, 3/72"
+                        value={formData.hisseOrani}
+                        onChange={(e) => handleFormDataDirectNetShareChange(e.target.value)}
+                        className="w-full mt-1 p-2 text-xs rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 font-mono font-bold text-blue-800 dark:text-blue-200"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Türetilen Koldaki Payı
+                      </label>
+                      <div className="w-full mt-1 p-2 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {formData.kolIciPayOrani || '-'}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Real-time Math Multiplication Box */}
+              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-100 dark:border-blue-950 flex items-center justify-between text-xs font-mono">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-slate-500 font-sans text-[11px]">Koldan Gelen:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                    {getBranchRootFraction(formData.kokMurisKolId)}
+                  </span>
+                  <span className="text-slate-400 font-bold">×</span>
+                  <span className="text-slate-500 font-sans text-[11px]">Koldaki Pay:</span>
+                  <span className="font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded">
+                    {formData.kolIciPayOrani || '1/1'}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-slate-500 font-sans text-[11px]">Net Tapu Payı:</span>
+                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-0.5 rounded">
+                    {formData.hisseOrani}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -945,16 +1303,17 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         </div>
       )}
 
-      {/* Modal 5: Mirasçı Bilgilerini Düzenle Modalı */}
+      {/* Modal 5: Mirasçı Bilgilerini Düzenle Modalı (Kademeli Hisse Çarpımı ile) */}
       {editingHeir && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveEdit}
-            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 my-8"
           >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Mirasçı Bilgilerini Düzenle
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-blue-600" />
+                Mirasçı Bilgilerini Düzenle (Kademeli Hisse)
               </h3>
               <button
                 type="button"
@@ -971,9 +1330,9 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
               </label>
               <input
                 type="text"
-                value={editingHeir.adSoyad}
-                onChange={(e) => setEditingHeir({ ...editingHeir, adSoyad: e.target.value })}
-                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                value={editFormData.adSoyad}
+                onChange={(e) => setEditFormData({ ...editFormData, adSoyad: e.target.value })}
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold"
                 required
               />
             </div>
@@ -986,8 +1345,8 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 <input
                   type="text"
                   maxLength={11}
-                  value={editingHeir.tcKimlik || ''}
-                  onChange={(e) => setEditingHeir({ ...editingHeir, tcKimlik: e.target.value })}
+                  value={editFormData.tcKimlik}
+                  onChange={(e) => setEditFormData({ ...editFormData, tcKimlik: e.target.value })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
                 />
               </div>
@@ -997,8 +1356,8 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                   Kuşak
                 </label>
                 <select
-                  value={editingHeir.kusak}
-                  onChange={(e) => setEditingHeir({ ...editingHeir, kusak: Number(e.target.value) })}
+                  value={editFormData.kusak}
+                  onChange={(e) => setEditFormData({ ...editFormData, kusak: Number(e.target.value) })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                 >
                   <option value={2}>{getGenerationLabel(2)}</option>
@@ -1009,35 +1368,130 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Veraset Kolu
-                </label>
-                <select
-                  value={editingHeir.kokMurisKolId}
-                  onChange={(e) => setEditingHeir({ ...editingHeir, kokMurisKolId: e.target.value })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                >
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.adSoyad}
-                    </option>
-                  ))}
-                </select>
+            {/* Branch Selection */}
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                Bağlı Olduğu Veraset Kolu
+              </label>
+              <select
+                value={editFormData.kokMurisKolId}
+                onChange={(e) => handleEditBranchChange(e.target.value)}
+                className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-blue-700 dark:text-blue-400"
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.adSoyad} (Kök Hisse: {b.kokHisseOrani})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Kademeli Hisse Giriş ve Canlı Hesaplama Kartı */}
+            <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                  <Calculator className="w-3.5 h-3.5 text-blue-600" />
+                  Kademeli Hisse Çarpımı
+                </span>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setEditFormData({ ...editFormData, calcMode: 'relative' })}
+                    className={`px-2 py-0.5 rounded font-medium transition ${
+                      editFormData.calcMode === 'relative'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Koldaki Payı Gir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditFormData({ ...editFormData, calcMode: 'direct' })}
+                    className={`px-2 py-0.5 rounded font-medium transition ${
+                      editFormData.calcMode === 'direct'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Doğrudan Net Hisse Gir
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  Hisse Oranı (Kesir)
-                </label>
-                <input
-                  type="text"
-                  value={editingHeir.hisseOrani}
-                  onChange={(e) => setEditingHeir({ ...editingHeir, hisseOrani: e.target.value })}
-                  className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                {editFormData.calcMode === 'relative' ? (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Koldaki Miras Payı (Kesir)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Örn: 1/2, 1/3, 2/5"
+                        value={editFormData.kolIciPayOrani}
+                        onChange={(e) => handleEditRelativeShareChange(e.target.value)}
+                        className="w-full mt-1 p-2 text-xs rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 font-mono font-bold text-blue-800 dark:text-blue-200"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Otomatik Net Tapu Hissesi
+                      </label>
+                      <div className="w-full mt-1 p-2 text-xs rounded border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 font-mono font-extrabold text-emerald-800 dark:text-emerald-200 flex items-center justify-between">
+                        <span>{editFormData.hisseOrani || '-'}</span>
+                        <span className="text-[10px] opacity-75">
+                          (%{Math.round(parseFraction(editFormData.hisseOrani).valueOf() * 10000) / 100})
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Doğrudan Net Tapu Hissesi
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Örn: 1/6, 1/9, 3/72"
+                        value={editFormData.hisseOrani}
+                        onChange={(e) => handleEditDirectNetShareChange(e.target.value)}
+                        className="w-full mt-1 p-2 text-xs rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 font-mono font-bold text-blue-800 dark:text-blue-200"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Türetilen Koldaki Payı
+                      </label>
+                      <div className="w-full mt-1 p-2 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {editFormData.kolIciPayOrani || '-'}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Real-time Math Multiplication Box */}
+              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-100 dark:border-blue-950 flex items-center justify-between text-xs font-mono">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-slate-500 font-sans text-[11px]">Koldan Gelen:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                    {getBranchRootFraction(editFormData.kokMurisKolId)}
+                  </span>
+                  <span className="text-slate-400 font-bold">×</span>
+                  <span className="text-slate-500 font-sans text-[11px]">Koldaki Pay:</span>
+                  <span className="font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded">
+                    {editFormData.kolIciPayOrani || '1/1'}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-slate-500 font-sans text-[11px]">Net Tapu Payı:</span>
+                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-0.5 rounded">
+                    {editFormData.hisseOrani}
+                  </span>
+                </div>
               </div>
             </div>
 

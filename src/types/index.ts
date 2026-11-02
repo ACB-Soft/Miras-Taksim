@@ -44,7 +44,8 @@ export interface Heir {
   telefon?: string;
   kusak: number; // 2, 3, 4 ...
   kokMurisKolId: string; // Hangi veraset koluna bağlı olduğu
-  hisseOrani: string; // Fraction string örn: "1/9", "3/72", "1/12"
+  kolIciPayOrani?: string; // Bu kişinin kendi veraset kolundaki payı (örn: "1/2")
+  hisseOrani: string; // Genel portföydeki net nihai hisse oranı (örn: "1/6")
   hakEdilenTL?: number; // Portföy toplamından aldığı pay
   hakEdilenM2?: number; // Eşdeğer m² hak edişi
   vekilMi?: boolean;

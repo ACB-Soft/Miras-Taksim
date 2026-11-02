@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { ProjectState, TaksimScenario } from './types';
 import { loadProjectFromStorage, saveProjectToStorage } from './utils/storage';
-import { computeHeirEntitlements } from './utils/fractionEngine';
+import { computeHeirEntitlements, calculateNetShareFromRelative } from './utils/fractionEngine';
 import { Header } from './components/Header';
 import { Sidebar, ActiveModule } from './components/Sidebar';
 import { ParcelManagement } from './components/ParcelManagement';
@@ -89,10 +89,28 @@ export default function App() {
   };
 
   const handleUpdateBranches = (newBranches: any[]) => {
-    setProject((prev) => ({
-      ...prev,
-      branches: newBranches,
-    }));
+    setProject((prev) => {
+      // If branch shares changed, cascade update to heirs with relative shares (kolIciPayOrani)
+      const cascadedHeirs = prev.heirs.map((h) => {
+        const br = newBranches.find((b) => b.id === h.kokMurisKolId);
+        if (br && h.kolIciPayOrani) {
+          const newNet = calculateNetShareFromRelative(br.kokHisseOrani, h.kolIciPayOrani);
+          return {
+            ...h,
+            hisseOrani: newNet,
+          };
+        }
+        return h;
+      });
+
+      const { updatedHeirs: finalHeirs } = computeHeirEntitlements(cascadedHeirs, prev.parcels);
+
+      return {
+        ...prev,
+        branches: newBranches,
+        heirs: finalHeirs,
+      };
+    });
   };
 
   const handleUpdateRootOwner = (name: string, title?: string) => {
