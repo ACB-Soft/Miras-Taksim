@@ -52,6 +52,7 @@ interface HeirFormData {
   calcMode: 'relative' | 'direct';
   kolIciPayOrani: string;
   hisseOrani: string;
+  sadeceNakitIstiyor?: boolean;
 }
 
 export const HeirManagement: React.FC<HeirManagementProps> = ({
@@ -120,6 +121,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     calcMode: 'relative',
     kolIciPayOrani: initialRelativeShare,
     hisseOrani: initialNetShare,
+    sadeceNakitIstiyor: false,
   });
 
   // Edit Heir Form Local State
@@ -132,6 +134,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     calcMode: 'relative',
     kolIciPayOrani: '1/2',
     hisseOrani: '1/6',
+    sadeceNakitIstiyor: false,
   });
 
   // Calculate Fraction Statistics & Dynamic Entitlements
@@ -236,6 +239,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
       calcMode: 'relative',
       kolIciPayOrani: relShare,
       hisseOrani: heir.hisseOrani,
+      sadeceNakitIstiyor: !!heir.sadeceNakitIstiyor,
     });
   };
 
@@ -286,6 +290,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
       kokMurisKolId: formData.kokMurisKolId || branches[0]?.id || 'Kol-1',
       kolIciPayOrani: formData.kolIciPayOrani.trim(),
       hisseOrani: formData.hisseOrani.trim(),
+      sadeceNakitIstiyor: !!formData.sadeceNakitIstiyor,
     };
 
     onUpdateHeirs([...heirs, newHeir]);
@@ -308,6 +313,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
             kokMurisKolId: editFormData.kokMurisKolId,
             kolIciPayOrani: editFormData.kolIciPayOrani.trim(),
             hisseOrani: editFormData.hisseOrani.trim(),
+            sadeceNakitIstiyor: !!editFormData.sadeceNakitIstiyor,
           }
         : h
     );
@@ -699,6 +705,11 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                                       T.C.: {heir.tcKimlik}
                                     </div>
                                   )}
+                                  {heir.sadeceNakitIstiyor && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800 mt-1">
+                                      💵 Sadece Nakit İstiyor (Tapu Almaz)
+                                    </span>
+                                  )}
                                 </div>
 
                                 <div className="flex items-center gap-1 shrink-0">
@@ -824,7 +835,12 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                         className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                       >
                         <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-slate-100">
-                          {heir.adSoyad}
+                          <div>{heir.adSoyad}</div>
+                          {heir.sadeceNakitIstiyor && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800 mt-0.5">
+                              💵 Sadece Nakit İstiyor
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-4 font-mono text-slate-600 dark:text-slate-400">
                           {heir.tcKimlik || '-'}
@@ -1284,6 +1300,25 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
               </div>
             </div>
 
+            {/* Sadece Nakit İstiyor mu Checkbox */}
+            <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="sadeceNakitIstiyorNew"
+                checked={!!formData.sadeceNakitIstiyor}
+                onChange={(e) => setFormData({ ...formData, sadeceNakitIstiyor: e.target.checked })}
+                className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <label htmlFor="sadeceNakitIstiyorNew" className="text-xs cursor-pointer">
+                <span className="font-bold text-slate-900 dark:text-slate-100 block">
+                  Taşınmaz Tapusu İstemiyor (Sadece Nakit İvaz Talep Ediyor)
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  İşaretlendiğinde, taksim senaryolarında bu mirasçıya taşınmaz verilmez; hak edişinin tamamı nakit ivaz alacağına dönüştürülür.
+                </span>
+              </label>
+            </div>
+
             <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
@@ -1493,6 +1528,27 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Sadece Nakit İstiyor mu Checkbox */}
+            <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="sadeceNakitIstiyorEdit"
+                checked={!!editFormData.sadeceNakitIstiyor}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, sadeceNakitIstiyor: e.target.checked })
+                }
+                className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <label htmlFor="sadeceNakitIstiyorEdit" className="text-xs cursor-pointer">
+                <span className="font-bold text-slate-900 dark:text-slate-100 block">
+                  Taşınmaz Tapusu İstemiyor (Sadece Nakit İvaz Talep Ediyor)
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  İşaretlendiğinde, taksim senaryolarında bu mirasçıya taşınmaz verilmez; hak edişinin tamamı nakit ivaz alacağına dönüştürülür.
+                </span>
+              </label>
             </div>
 
             <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">

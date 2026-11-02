@@ -23,6 +23,8 @@ import {
   Layers,
   ArrowRightLeft,
   Sliders,
+  Coins,
+  Banknote,
 } from 'lucide-react';
 import { generateLocalTaksimReport } from '../utils/aiReportFallback';
 
@@ -35,12 +37,14 @@ interface OptimizationModuleProps {
     },
     activeMode: 'pure_independent' | 'sibling_consolidation'
   ) => void;
+  onUpdateHeirs?: (heirs: Heir[]) => void;
   onNavigateToEqualization: () => void;
 }
 
 export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
   project,
   onUpdateScenarios,
+  onUpdateHeirs,
   onNavigateToEqualization,
 }) => {
   const { parcels, heirs, branches, scenarios, selectedScenarioMode } = project;
@@ -183,6 +187,96 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
         sibling_consolidation: updatedScenario,
       },
       'sibling_consolidation'
+    );
+  };
+
+  // Toggle whether an heir desires ONLY pure cash (does not want any real estate title deed)
+  const handleToggleHeirPureCash = (heirId: string) => {
+    const updatedHeirs = heirs.map((h) =>
+      h.id === heirId ? { ...h, sadeceNakitIstiyor: !h.sadeceNakitIstiyor } : h
+    );
+
+    const toggledHeir = updatedHeirs.find((h) => h.id === heirId);
+    let updatedPure = scenarios.pure_independent;
+    let updatedSibling = scenarios.sibling_consolidation;
+
+    if (toggledHeir?.sadeceNakitIstiyor) {
+      // If toggled to cash only, remove all parcel assignments for this heir
+      if (updatedPure) {
+        const newPureAssignments: Record<string, string[]> = {};
+        updatedHeirs.forEach((h) => {
+          newPureAssignments[h.id] = (updatedPure?.assignments[h.id] || []).filter(
+            () => h.id !== heirId
+          );
+        });
+        updatedPure = calculateScenarioBalancesAndIvaz(
+          parcels,
+          updatedHeirs,
+          'pure_independent',
+          newPureAssignments,
+          {},
+          {},
+          updatedPure
+        );
+      }
+
+      if (updatedSibling) {
+        const newSiblingAssignments: Record<string, string[]> = {};
+        const newJoint = { ...(updatedSibling.jointParcels || {}) };
+        updatedHeirs.forEach((h) => {
+          newSiblingAssignments[h.id] = (updatedSibling?.assignments[h.id] || []).filter(
+            () => h.id !== heirId
+          );
+        });
+        Object.keys(newJoint).forEach((pId) => {
+          newJoint[pId] = (newJoint[pId] || []).filter((id) => id !== heirId);
+          if (newJoint[pId].length <= 1) delete newJoint[pId];
+        });
+
+        updatedSibling = calculateScenarioBalancesAndIvaz(
+          parcels,
+          updatedHeirs,
+          'sibling_consolidation',
+          newSiblingAssignments,
+          newJoint,
+          updatedSibling.branchAssignments || {},
+          updatedSibling
+        );
+      }
+    } else {
+      if (updatedPure) {
+        updatedPure = calculateScenarioBalancesAndIvaz(
+          parcels,
+          updatedHeirs,
+          'pure_independent',
+          updatedPure.assignments,
+          {},
+          {},
+          updatedPure
+        );
+      }
+      if (updatedSibling) {
+        updatedSibling = calculateScenarioBalancesAndIvaz(
+          parcels,
+          updatedHeirs,
+          'sibling_consolidation',
+          updatedSibling.assignments,
+          updatedSibling.jointParcels,
+          updatedSibling.branchAssignments,
+          updatedSibling
+        );
+      }
+    }
+
+    if (onUpdateHeirs) {
+      onUpdateHeirs(updatedHeirs);
+    }
+    onUpdateScenarios(
+      {
+        pure_independent: updatedPure,
+        sibling_consolidation: updatedSibling,
+      },
+      activeTab
     );
   };
 
@@ -459,6 +553,77 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
             </button>
           </div>
 
+          {/* Hissedar Tercihleri: Tapu İstemeyen (Sadece Nakit İvaz Talep Eden) Mirasçılar */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Coins className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                  Hissedar Tercihleri: Tapu İstemeyen (Sadece Nakit İvaz Talep Eden) Mirasçılar
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                {heirs.filter((h) => h.sadeceNakitIstiyor).length} / {heirs.length} Hissedar Sadece Nakit İstiyor
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-500">
+              Bazı hissedarlar tereke taşınmazlarından mülkiyet/tapu edinmek istemeyip payının tamamını diğer paydaşlardan nakit ivaz olarak tahsil etmek isteyebilir. İstediğiniz mirasçıyı aşağıdan tek tıkla <strong>"Sadece Nakit İstiyor"</strong> durumuna getirebilirsiniz; sistem o mirasçıya taşınmaz vermez ve hak edişinin tamamını nakit ivaz alacağına dönüştürür.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-1">
+              {heirs.map((heir) => {
+                const isCashOnly = !!heir.sadeceNakitIstiyor;
+                return (
+                  <div
+                    key={heir.id}
+                    className={`p-3 rounded-xl border transition-all flex flex-col justify-between gap-2 ${
+                      isCashOnly
+                        ? 'border-emerald-400 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 ring-1 ring-emerald-400 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1">
+                        <strong className="text-xs text-slate-900 dark:text-slate-100 font-bold truncate">
+                          {heir.adSoyad}
+                        </strong>
+                        <span className="font-mono text-[10px] text-blue-700 dark:text-blue-400 font-bold shrink-0">
+                          {heir.hisseOrani}
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                        Hak: {formatCurrency(heir.hakEdilenTL || 0)}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleHeirPureCash(heir.id)}
+                      className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1.5 ${
+                        isCashOnly
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                          : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-700'
+                      }`}
+                    >
+                      {isCashOnly ? (
+                        <>
+                          <Coins className="w-3.5 h-3.5 text-emerald-200" />
+                          <span>Sadece Nakit İstiyor</span>
+                        </>
+                      ) : (
+                        <>
+                          <Home className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Taşınmaz Alabilir</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Interactive User Decision Section: Hangi parseli kimin alacağına kullanıcı karar versin */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/30">
@@ -583,7 +748,7 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
                               <option value="">-- Atanmadı (Boşta) --</option>
                               {heirs.map((h) => (
                                 <option key={h.id} value={h.id}>
-                                  {h.adSoyad} ({h.hisseOrani} Hisse - Hak: {formatCurrency(h.hakEdilenTL || 0)})
+                                  {h.adSoyad} {h.sadeceNakitIstiyor ? '💵 [Sadece Nakit İstiyor]' : ''} ({h.hisseOrani} Hisse - Hak: {formatCurrency(h.hakEdilenTL || 0)})
                                 </option>
                               ))}
                             </select>
@@ -822,6 +987,11 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
                             <span className="font-mono text-xs text-blue-900 dark:text-blue-300 font-medium">
                               {b.aldigiParselAdlari.join(', ')}
                             </span>
+                          ) : b.sadeceNakitIstiyor ? (
+                            <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-[11px]">
+                              <Coins className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>Taşınmaz İstemiyor (Sadece Nakit İvaz Alacaklısı)</span>
+                            </div>
                           ) : (
                             <span className="text-slate-400 italic text-[11px]">
                               Taşınmaz verilmedi (Tamamı nakit ivaz alacaklısı)
@@ -848,7 +1018,9 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
                                 -{formatCurrency(Math.abs(b.netFarkTL))} ALACAKLI
                               </span>
                               <span className="text-[10px] text-emerald-600 font-sans mt-0.5">
-                                (Hak edişinden eksik taşınmaz aldı, ivaz tahsil edecek)
+                                {b.sadeceNakitIstiyor
+                                  ? '(Taşınmaz tapusu almayacak, hakkının tamamını nakit ivaz olarak tahsil edecek)'
+                                  : '(Hak edişinden eksik taşınmaz aldı, ivaz tahsil edecek)'}
                               </span>
                             </div>
                           )}

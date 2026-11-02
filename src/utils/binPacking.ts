@@ -90,6 +90,7 @@ export function calculateScenarioBalancesAndIvaz(
       heirName: heir.adSoyad,
       kokMurisKolId: heir.kokMurisKolId,
       hisseOrani: heir.hisseOrani,
+      sadeceNakitIstiyor: heir.sadeceNakitIstiyor,
       hakEdilenTL,
       aldigiParsellerDegeriTL,
       aldigiParselAdlari,
@@ -298,16 +299,19 @@ export function runTaksimOptimization(
     allocatedTL[h.id] = 0;
   });
 
+  const eligibleHeirs = heirs.filter((h) => !h.sadeceNakitIstiyor);
+  const candidateHeirs = eligibleHeirs.length > 0 ? eligibleHeirs : heirs;
+
   if (mode === 'pure_independent') {
     // 1. Pure Independent Mode: Each parcel belongs to exactly one heir.
-    // Assign each parcel to the heir who currently has the greatest deficit (target - currentAllocated)
+    // Assign each parcel to candidate heirs who want real estate (not pure cash)
     for (const parcel of sortedParcels) {
       const pVal = Number(parcel.toplamDegerTL) || 0;
 
-      let bestHeir = heirs[0];
+      let bestHeir = candidateHeirs[0];
       let maxDeficit = -Infinity;
 
-      for (const heir of heirs) {
+      for (const heir of candidateHeirs) {
         const target = entitlementMap[heir.id] || 0;
         const current = allocatedTL[heir.id] || 0;
         const deficit = target - current;
@@ -329,10 +333,10 @@ export function runTaksimOptimization(
       improved = false;
       iterations++;
 
-      for (let i = 0; i < heirs.length; i++) {
-        for (let j = i + 1; j < heirs.length; j++) {
-          const h1 = heirs[i];
-          const h2 = heirs[j];
+      for (let i = 0; i < candidateHeirs.length; i++) {
+        for (let j = i + 1; j < candidateHeirs.length; j++) {
+          const h1 = candidateHeirs[i];
+          const h2 = candidateHeirs[j];
 
           const pList1 = assignments[h1.id];
           const pList2 = assignments[h2.id];
@@ -391,9 +395,9 @@ export function runTaksimOptimization(
     }
   } else {
     // 2. Sibling Consolidation Mode:
-    // Group heirs by branch (kokMurisKolId)
+    // Group candidate heirs by branch (kokMurisKolId)
     const branchGroups: Record<string, Heir[]> = {};
-    heirs.forEach((h) => {
+    candidateHeirs.forEach((h) => {
       const bId = h.kokMurisKolId || 'KOK_GENEL';
       if (!branchGroups[bId]) branchGroups[bId] = [];
       branchGroups[bId].push(h);
@@ -405,7 +409,7 @@ export function runTaksimOptimization(
       let bestHeir: Heir | null = null;
       let maxDeficit = -Infinity;
 
-      for (const heir of heirs) {
+      for (const heir of candidateHeirs) {
         const target = entitlementMap[heir.id] || 0;
         const current = allocatedTL[heir.id] || 0;
         const deficit = target - current;

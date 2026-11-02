@@ -42,14 +42,18 @@ Vekil;
 3. Taşınmazların taksimi sonucu doğacak nakit ivaz (denkleştirme bedeli) ödemelerini müvekkil adına açılmış banka hesabına yatırtmaya yetkili olup, kendi şahsına tahsilat yapamaz.
 
 MÜTEMMİM CÜZ EK LİSTE (YETKİ VERİLEN TAŞINMAZLAR):
-${parcelRows || '  (Bu malike atanmış taşınmaz bulunmamaktadır - İvaz alacaklısı)'}
+${
+  parcelRows ||
+  '  (Bu malike taşınmaz tahsis edilmemiştir. Müvekkil tereke taşınmazlarından mülkiyet edinmeyecek olup, vekil müvekkil adına doğan nakit ivaz denkleştirme bedellerini müvekkil hesabına tahsil etmeye ve tescil/ferağ feragatlerini imzalamaya yetkilidir.)'
+}
 
-Yukarıda kayıtlı şart ve sınırlamalar dairesinde, ilgili Tapu Müdürlükleri, Kadastro Müdürlükleri ve Noterlikler nezdinde taksim sözleşmelerini imzalamaya, tapu senetlerini tesellüm etmeye mezun ve yetkili kılınmıştır.
+Yukarıda kayıtlı şart ve sınırlamalar dairesinde, ilgili Tapu Müdürlükleri, Kadastro Müdürlükleri ve Noterlikler nezdinde taksim sözleşmelerini imzalamaya, hak ediş ve ivaz bedellerini tesellüme mezun ve yetkili kılınmıştır.
 
 TARİH : ...... / ...... / 202...
 
 MÜVEKKİL ADI SOYADI / İMZA:
 ${heir.adSoyad}
+${heir.sadeceNakitIstiyor ? '(SADECE NAKİT İVAZ ALACAKLISI / TAŞINMAZ TALEP ETMEYEN MALİK)' : ''}
 `.trim();
 }
 
@@ -105,6 +109,16 @@ Mirasçı: ${b.heirName} (Hisse: ${b.hisseOrani})
           .join('\n')
       : 'Herhangi bir nakit denkleştirme ödemesi gerekmemektedir (Tam denklik).';
 
+  const cashOnlyHeirs = scenario.balances.filter(
+    (b) => b.sadeceNakitIstiyor || (b.aldigiParsellerDegeriTL === 0 && b.hakEdilenTL > 0)
+  );
+
+  const cashOnlyClause =
+    cashOnlyHeirs.length > 0
+      ? `\n4. TAŞINMAZ MÜLKİYETİ ALMAYAN VE TAMAMEN NAKİT İVAZ TALEP EDEN MİRASÇILARIN BEYANI:
+Mirasçılardan ${cashOnlyHeirs.map((h) => `${h.heirName} (Hak Ediş: ${formatCurrency(h.hakEdilenTL)})`).join(', ')}, kendi serbest irade ve tercihleri doğrultusunda tereke dahilindeki hiçbir taşınmazdan müstakil veya hisseli mülkiyet edinmeyeceklerini; veraset hisselerine tekabül eden toplam hak edişlerini yukarıdaki tabloda tespit edilen nakit ivaz alacakları kapsamında diğer paydaşlardan nakden ve defaten tahsil edeceklerini, bu bedellerin banka hesaplarına intikal etmesi şartıyla tüm taşınmazlar üzerindeki miras ve mülkiyet haklarından gayrikabili rücu feragat ettiklerini kabul ve beyan etmişlerdir.\n`
+      : '';
+
   return `
 MİRAS TAKSİMİ NİHAİ ÖN MUTABAKAT ZAPTI VE PAYLAŞIM PROTOKOLÜ
 
@@ -126,14 +140,14 @@ Taşınmazların değerleri ile paydaşların veraset hisseleri arasındaki fark
 ${ivazRows}
 
 Ödeme Şartı: Yukarıda adı geçen borçlu hissedarlar, ilgili ivaz tutarlarını tapuda taksim ve ferağ işlemlerinin yapılacağı tarihten en geç 3 (üç) iş günü öncesine kadar alacaklı hissedarların bildireceği banka IBAN numaralarına defaten ve eksiksiz olarak ödeyeceklerdir.
-
-4. FERAĞ VE TAPU TESCİL TAAHHÜDÜ:
+${cashOnlyClause}
+5. FERAĞ VE TAPU TESCİL TAAHHÜDÜ:
 Taraflar, yukarıda kendilerine isabet ettiği belirlenen taşınmazlar haricinde kalan diğer taşınmazlardaki tüm miras ve mülkiyet haklarından feragat ettiklerini, ilgili Tapu Müdürlüğü huzurunda diğer paydaşlar lehine ferağ takrirlerini tereddütsüz vereceklerini kabul ve taahhüt ederler.
 
-5. UYUŞMAZLIKLARIN ÇÖZÜMÜ:
+6. UYUŞMAZLIKLARIN ÇÖZÜMÜ:
 İşbu ön mutabakat zaptı, noter huzurunda düzenlenecek nihai taksim sözleşmesinin esasını teşkil eder. Taraflar, iyi niyet ve ailevi tesanüt kuralları çerçevesinde hareket etmeyi taahhüt ederler.
 
-İşbu protokol 5 (beş) maddeden ibaret olup, tüm paydaşlarca okunup anlaşılarak hür iradeleriyle imza altına alınmıştır.
+İşbu protokol tüm paydaşlarca okunup anlaşılarak hür iradeleriyle imza altına alınmıştır.
 
 İMZALAR (TÜM MİRASÇILAR):
 ${heirs.map((h) => `\n[ ......................................... ]\n${h.adSoyad}\nT.C.: ${h.tcKimlik || '....................'}\n`).join('')}

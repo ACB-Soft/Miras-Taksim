@@ -49,6 +49,7 @@ export interface Heir {
   hakEdilenTL?: number; // Portföy toplamından aldığı pay
   hakEdilenM2?: number; // Eşdeğer m² hak edişi
   vekilMi?: boolean;
+  sadeceNakitIstiyor?: boolean; // Tapu istemiyor, hakkını tamamen nakit ivaz olarak almak istiyor
   notlar?: string;
 }
 
@@ -66,6 +67,7 @@ export interface HeirBalance {
   heirName: string;
   kokMurisKolId: string;
   hisseOrani: string;
+  sadeceNakitIstiyor?: boolean;
   hakEdilenTL: number;
   aldigiParsellerDegeriTL: number;
   aldigiParselAdlari: string[];

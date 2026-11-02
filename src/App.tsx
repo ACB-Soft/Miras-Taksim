@@ -210,6 +210,7 @@ export default function App() {
               <OptimizationModule
                 project={project}
                 onUpdateScenarios={handleUpdateScenarios}
+                onUpdateHeirs={handleUpdateHeirs}
                 onNavigateToEqualization={() => setActiveModule('equalization')}
               />
             )}
