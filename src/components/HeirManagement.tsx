@@ -16,6 +16,10 @@ import {
   CheckCircle2,
   X,
   GitBranch,
+  Network,
+  Table as TableIcon,
+  Plus,
+  UserCheck,
 } from 'lucide-react';
 
 interface HeirManagementProps {
@@ -33,8 +37,8 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
   onUpdateHeirs,
   onUpdateBranches,
 }) => {
+  const [viewMode, setViewMode] = useState<'tree' | 'table'>('tree');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedBranchFilter, setSelectedBranchFilter] = useState('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingHeir, setEditingHeir] = useState<Heir | null>(null);
 
@@ -48,7 +52,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     hisseOrani: '1/9',
   });
 
-  // Calculate Fraction Statistics
+  // Calculate Fraction Statistics & Dynamic Entitlements
   const shareStats = calculateTotalShares(heirs);
   const { totalPortfolioTL, totalPortfolioM2, updatedHeirs } = computeHeirEntitlements(
     heirs,
@@ -60,10 +64,21 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     const matchesSearch =
       h.adSoyad.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (h.tcKimlik && h.tcKimlik.includes(searchQuery));
-    const matchesBranch =
-      selectedBranchFilter === 'ALL' || h.kokMurisKolId === selectedBranchFilter;
-    return matchesSearch && matchesBranch;
+    return matchesSearch;
   });
+
+  // Open add modal pre-selecting a specific branch
+  const handleOpenAddForBranch = (branchId: string) => {
+    setFormData({
+      adSoyad: '',
+      tcKimlik: '',
+      telefon: '',
+      kusak: 3,
+      kokMurisKolId: branchId,
+      hisseOrani: '1/9',
+    });
+    setIsAddModalOpen(true);
+  };
 
   // Save New Heir
   const handleCreateHeir = (e: React.FormEvent) => {
@@ -76,7 +91,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
       tcKimlik: formData.tcKimlik?.trim() || '',
       telefon: formData.telefon?.trim() || '',
       kusak: Number(formData.kusak) || 3,
-      kokMurisKolId: formData.kokMurisKolId || 'Kol-1',
+      kokMurisKolId: formData.kokMurisKolId || branches[0]?.id || 'Kol-1',
       hisseOrani: formData.hisseOrani.trim(),
     };
 
@@ -109,7 +124,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     }
   };
 
-  // Add Branch
+  // Add a new sibling branch (Kardeş Kolu)
   const handleAddBranch = () => {
     const bNum = branches.length + 1;
     const newBranch: HeirBranch = {
@@ -120,20 +135,59 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
     onUpdateBranches([...branches, newBranch]);
   };
 
+  // Remove a branch if no heirs attached
+  const handleDeleteBranch = (branchId: string) => {
+    const heirsInBranch = heirs.filter((h) => h.kokMurisKolId === branchId);
+    if (heirsInBranch.length > 0) {
+      alert(`Bu kolda ${heirsInBranch.length} kayıtlı mirasçı bulunmaktadır. Önce mirasçıları silmeli veya başka kola taşımalısınız.`);
+      return;
+    }
+    if (confirm('Bu kardeş kolunu silmek istediğinizden emin misiniz?')) {
+      onUpdateBranches(branches.filter((b) => b.id !== branchId));
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Veraset ve Mirasçı Kütüğü
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Network className="w-5 h-5 text-blue-600" />
+            Mirasçı Soyağacı ve Veraset Kütüğü
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Sınırsız sayıda mirasçı ekleyebilir, kök kollarını belirleyebilir ve fraction.js ile sıfır yuvarlama hatasıyla hisseleri doğrulayabilirsiniz.
+            Dede (Kök Muris) mirasından kardeş kollarına ve torunlara intikal eden hisseleri soyağacı düzeninde inceleyin ve yönetin.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* View Toggle */}
+          <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <button
+              onClick={() => setViewMode('tree')}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition ${
+                viewMode === 'tree'
+                  ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Network className="w-3.5 h-3.5" />
+              Soyağacı
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition ${
+                viewMode === 'table'
+                  ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              Cetvel / Tablo
+            </button>
+          </div>
+
           <button
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm whitespace-nowrap"
@@ -184,156 +238,295 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
         </div>
       </div>
 
-      {/* Branches List */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
-            <GitBranch className="w-4 h-4 text-blue-600" />
-            2. Kuşak Kök Muris Kolları (Kardeşler)
-          </div>
-          <button
-            onClick={handleAddBranch}
-            className="text-[11px] text-blue-600 hover:text-blue-800 font-medium"
-          >
-            + Yeni Kök Kol Ekle
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {branches.map((b) => {
-            const count = heirs.filter((h) => h.kokMurisKolId === b.id).length;
-            return (
-              <div
-                key={b.id}
-                className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-xs flex items-center justify-between"
-              >
-                <div>
-                  <div className="font-semibold text-slate-900 dark:text-slate-100">
-                    {b.adSoyad}
-                  </div>
-                  <div className="text-[11px] text-slate-500 font-mono">
-                    Kök Hisse: {b.kokHisseOrani} · {count} Mirasçı
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Search and Filter */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-72">
+      {/* Search Bar */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative w-full max-w-sm">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="İsim veya T.C. ile ara..."
+            placeholder="Mirasçı adı veya T.C. Kimlik ile filtrele..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-[11px] text-slate-500 shrink-0">Kök Kol Filtresi:</span>
-          <select
-            value={selectedBranchFilter}
-            onChange={(e) => setSelectedBranchFilter(e.target.value)}
-            className="p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 w-full sm:w-44"
-          >
-            <option value="ALL">Tüm Kollar</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.adSoyad}
-              </option>
-            ))}
-          </select>
-        </div>
+        <button
+          onClick={handleAddBranch}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition whitespace-nowrap"
+        >
+          <GitBranch className="w-3.5 h-3.5 text-blue-600" />
+          + Yeni Kardeş Kolu Ekle
+        </button>
       </div>
 
-      {/* Heirs Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-            Mirasçı Listesi ve Hak Ediş Cetveli ({filteredHeirs.length})
-          </h2>
+      {/* VIEW 1: SOYAĞACI (FAMILY TREE) VIEW */}
+      {viewMode === 'tree' && (
+        <div className="bg-slate-50/50 dark:bg-slate-900/40 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-8 overflow-x-auto">
+          {/* ROOT LEVEL: 1. KUŞAK DEDE / KÖK MURİS */}
+          <div className="flex flex-col items-center">
+            <div className="relative z-10 bg-gradient-to-b from-blue-900 to-indigo-950 text-white px-6 py-4 rounded-2xl shadow-lg border border-blue-800 text-center max-w-md w-full">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-200 block">
+                1. Kuşak · Kök Muris
+              </span>
+              <h2 className="text-base font-extrabold tracking-tight mt-0.5">
+                Dede (Mirasbırakan)
+              </h2>
+              <div className="mt-2 pt-2 border-t border-blue-800/80 flex items-center justify-around text-xs font-mono">
+                <div>
+                  <span className="text-[10px] text-blue-300 block">Toplam Tereke</span>
+                  <strong>{formatCurrency(totalPortfolioTL)}</strong>
+                </div>
+                <div className="w-px h-6 bg-blue-800" />
+                <div>
+                  <span className="text-[10px] text-blue-300 block">Toplam Malik</span>
+                  <strong>{heirs.length} Mirasçı</strong>
+                </div>
+                <div className="w-px h-6 bg-blue-800" />
+                <div>
+                  <span className="text-[10px] text-blue-300 block">Kök Hissesi</span>
+                  <strong>1/1 (Tam)</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Vertical connector from Root */}
+            <div className="w-0.5 h-8 bg-blue-300 dark:bg-blue-700" />
+          </div>
+
+          {/* LEVEL 2: 2. KUŞAK KARDEŞ KOLLARI VE ONLARA BAĞLI MİRASÇILAR */}
+          <div className="relative">
+            {/* Horizontal distributor bar across branches */}
+            {branches.length > 1 && (
+              <div className="hidden lg:block absolute top-0 left-12 right-12 h-0.5 bg-blue-200 dark:bg-blue-800 -mt-0.5" />
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+              {branches.map((branch, bIdx) => {
+                const branchHeirs = filteredHeirs.filter(
+                  (h) => h.kokMurisKolId === branch.id
+                );
+                const branchTotalTL = branchHeirs.reduce(
+                  (acc, h) => acc + (h.hakEdilenTL || 0),
+                  0
+                );
+                const branchTotalM2 = branchHeirs.reduce(
+                  (acc, h) => acc + (h.hakEdilenM2 || 0),
+                  0
+                );
+
+                return (
+                  <div
+                    key={branch.id}
+                    className="flex flex-col items-center space-y-4"
+                  >
+                    {/* Branch Header Card (2. Kuşak Kardeş) */}
+                    <div className="w-full bg-white dark:bg-slate-900 rounded-xl p-4 border border-blue-200 dark:border-blue-900 shadow-sm text-center relative group">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                          2. Kuşak Kol {bIdx + 1}
+                        </span>
+                        {branchHeirs.length === 0 && (
+                          <button
+                            onClick={() => handleDeleteBranch(branch.id)}
+                            className="text-slate-400 hover:text-red-500 p-0.5"
+                            title="Bu boş kolu sil"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1">
+                        {branch.adSoyad}
+                      </h3>
+
+                      <div className="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center justify-around bg-slate-50 dark:bg-slate-800/60 py-1.5 rounded-lg">
+                        <span>{branchHeirs.length} Mirasçı</span>
+                        <span>·</span>
+                        <span className="font-bold text-blue-700 dark:text-blue-300">
+                          {formatCurrency(branchTotalTL)}
+                        </span>
+                      </div>
+
+                      {/* Add heir to this branch button */}
+                      <button
+                        onClick={() => handleOpenAddForBranch(branch.id)}
+                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-dashed border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-xs font-semibold transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Bu Kola Mirasçı Ekle
+                      </button>
+                    </div>
+
+                    {/* Connector line down to heirs */}
+                    <div className="w-0.5 h-4 bg-slate-300 dark:bg-slate-700" />
+
+                    {/* Heirs Cards under this branch (3. ve 4. Kuşak) */}
+                    <div className="w-full space-y-3">
+                      {branchHeirs.length === 0 ? (
+                        <div className="p-4 bg-white/60 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                          Bu kolda henüz mirasçı bulunmuyor.
+                        </div>
+                      ) : (
+                        branchHeirs.map((heir) => (
+                          <div
+                            key={heir.id}
+                            className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-blue-300 dark:hover:border-blue-700 transition relative"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="inline-block text-[10px] font-semibold text-slate-500 uppercase">
+                                  {heir.kusak}. Kuşak Mirasçı
+                                </span>
+                                <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                                  {heir.adSoyad}
+                                </h4>
+                                {heir.tcKimlik && (
+                                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                                    T.C.: {heir.tcKimlik}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => setEditingHeir(heir)}
+                                  className="p-1 text-slate-400 hover:text-blue-600 transition"
+                                  title="Düzenle"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteHeir(heir.id)}
+                                  className="p-1 text-slate-400 hover:text-red-600 transition"
+                                  title="Sil"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-mono">
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-sans">
+                                  Hisse Oranı
+                                </span>
+                                <span className="font-bold text-blue-700 dark:text-blue-400">
+                                  {heir.hisseOrani}
+                                </span>
+                              </div>
+
+                              <div className="text-right">
+                                <span className="text-[10px] text-slate-400 block font-sans">
+                                  Hak Ediş Tutarı
+                                </span>
+                                <span className="font-bold text-slate-900 dark:text-slate-100">
+                                  {formatCurrency(heir.hakEdilenTL || 0)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="mt-1 text-[10px] text-slate-500 font-mono text-right">
+                              Eşdeğer Alan: {formatArea(heir.hakEdilenM2 || 0)}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
+      )}
 
-        {filteredHeirs.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-500">
-            {heirs.length === 0
-              ? 'Henüz mirasçı kaydı bulunmuyor. "Yeni Mirasçı Ekle" butonunu kullanarak ekleyebilirsiniz.'
-              : 'Arama kriterlerine uygun mirasçı bulunamadı.'}
+      {/* VIEW 2: TABULAR / CETVEL VIEW */}
+      {viewMode === 'table' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              Mirasçı Kütüğü ve Hak Ediş Cetveli ({filteredHeirs.length})
+            </h2>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-4">Adı Soyadı</th>
-                  <th className="py-2.5 px-4">T.C. Kimlik</th>
-                  <th className="py-2.5 px-4">Kuşak</th>
-                  <th className="py-2.5 px-4">Kök Kol</th>
-                  <th className="py-2.5 px-4 text-center font-mono">Hisse Oranı</th>
-                  <th className="py-2.5 px-4 text-right font-mono">Eşdeğer Alan (m²)</th>
-                  <th className="py-2.5 px-4 text-right font-mono">Hak Edilen Değer (TL)</th>
-                  <th className="py-2.5 px-4 text-right">İşlemler</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredHeirs.map((heir) => {
-                  const branch = branches.find((b) => b.id === heir.kokMurisKolId);
 
-                  return (
-                    <tr
-                      key={heir.id}
-                      className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
-                    >
-                      <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-slate-100">
-                        {heir.adSoyad}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-slate-600 dark:text-slate-400">
-                        {heir.tcKimlik || '-'}
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
-                        {heir.kusak}. Kuşak
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
-                        {branch ? branch.adSoyad : heir.kokMurisKolId}
-                      </td>
-                      <td className="py-2.5 px-4 text-center font-mono font-bold text-blue-700 dark:text-blue-400">
-                        {heir.hisseOrani}
-                      </td>
-                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                        {formatArea(heir.hakEdilenM2 || 0)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(heir.hakEdilenTL || 0)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right space-x-1.5 whitespace-nowrap">
-                        <button
-                          onClick={() => setEditingHeir(heir)}
-                          className="p-1 text-slate-400 hover:text-blue-600 transition"
-                          title="Düzenle"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteHeir(heir.id)}
-                          className="p-1 text-slate-400 hover:text-red-600 transition"
-                          title="Sil"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+          {filteredHeirs.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-500">
+              {heirs.length === 0
+                ? 'Henüz mirasçı kaydı bulunmuyor. "Yeni Mirasçı Ekle" butonunu kullanarak ekleyebilirsiniz.'
+                : 'Arama kriterlerine uygun mirasçı bulunamadı.'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="py-2.5 px-4">Adı Soyadı</th>
+                    <th className="py-2.5 px-4">T.C. Kimlik</th>
+                    <th className="py-2.5 px-4">Kuşak</th>
+                    <th className="py-2.5 px-4">Kök Kol</th>
+                    <th className="py-2.5 px-4 text-center font-mono">Hisse Oranı</th>
+                    <th className="py-2.5 px-4 text-right font-mono">Eşdeğer Alan (m²)</th>
+                    <th className="py-2.5 px-4 text-right font-mono">Hak Edilen Değer (TL)</th>
+                    <th className="py-2.5 px-4 text-right">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredHeirs.map((heir) => {
+                    const branch = branches.find((b) => b.id === heir.kokMurisKolId);
+
+                    return (
+                      <tr
+                        key={heir.id}
+                        className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
+                      >
+                        <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-slate-100">
+                          {heir.adSoyad}
+                        </td>
+                        <td className="py-2.5 px-4 font-mono text-slate-600 dark:text-slate-400">
+                          {heir.tcKimlik || '-'}
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
+                          {heir.kusak}. Kuşak
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
+                          {branch ? branch.adSoyad : heir.kokMurisKolId}
+                        </td>
+                        <td className="py-2.5 px-4 text-center font-mono font-bold text-blue-700 dark:text-blue-400">
+                          {heir.hisseOrani}
+                        </td>
+                        <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                          {formatArea(heir.hakEdilenM2 || 0)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100">
+                          {formatCurrency(heir.hakEdilenTL || 0)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                          <button
+                            onClick={() => setEditingHeir(heir)}
+                            className="p-1 text-slate-400 hover:text-blue-600 transition"
+                            title="Düzenle"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteHeir(heir.id)}
+                            className="p-1 text-slate-400 hover:text-red-600 transition"
+                            title="Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Add Heir Modal */}
       {isAddModalOpen && (
@@ -424,7 +617,7 @@ export const HeirManagement: React.FC<HeirManagementProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="Örn: 1/9, 3/72, 1/12"
+                  placeholder="Örn: 1/9, 3/72, 1/12, 1/3, 2/3"
                   value={formData.hisseOrani}
                   onChange={(e) => setFormData({ ...formData, hisseOrani: e.target.value })}
                   className="w-full mt-1 p-2 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold"

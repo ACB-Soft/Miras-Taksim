@@ -136,17 +136,17 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
     }
   };
 
-  // Add Manual Parcel
+  // Add New Parcel & Automatically Open Edit Modal
   const handleAddManualParcel = () => {
     const newP: Parcel = {
       id: 'p_' + Math.random().toString(36).substring(2, 9),
-      ada: '101',
+      ada: '',
       parselNo: String(parcels.length + 1),
-      mevkii: 'Köy İçi',
-      alanM2: 5000,
+      mevkii: '',
+      alanM2: 1000,
       nitelik: 'Tarla',
-      birimFiyatTL: 600,
-      toplamDegerTL: 3000000,
+      birimFiyatTL: 1000,
+      toplamDegerTL: 1000000,
       coordinates: [
         [39.925, 32.85],
         [39.928, 32.855],
@@ -157,6 +157,7 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
     };
     onUpdateParcels([...parcels, newP]);
     setSelectedParcelId(newP.id);
+    setEditingParcel(newP); // Automatically open edit modal!
   };
 
   // Save Edited Parcel
@@ -212,10 +213,10 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
 
           <button
             onClick={handleAddManualParcel}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
-            Manuel Parsel Ekle
+            + Yeni Parsel Ekle
           </button>
         </div>
       </div>

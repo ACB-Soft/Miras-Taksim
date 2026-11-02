@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { ProjectState, TaksimScenario } from './types';
 import { loadProjectFromStorage, saveProjectToStorage } from './utils/storage';
+import { computeHeirEntitlements } from './utils/fractionEngine';
 import { Header } from './components/Header';
 import { Sidebar, ActiveModule } from './components/Sidebar';
 import { ParcelManagement } from './components/ParcelManagement';
@@ -59,17 +60,24 @@ export default function App() {
 
   // Update handlers
   const handleUpdateParcels = (newParcels: any[]) => {
-    setProject((prev) => ({
-      ...prev,
-      parcels: newParcels,
-    }));
+    setProject((prev) => {
+      const { updatedHeirs } = computeHeirEntitlements(prev.heirs, newParcels);
+      return {
+        ...prev,
+        parcels: newParcels,
+        heirs: updatedHeirs,
+      };
+    });
   };
 
   const handleUpdateHeirs = (newHeirs: any[]) => {
-    setProject((prev) => ({
-      ...prev,
-      heirs: newHeirs,
-    }));
+    setProject((prev) => {
+      const { updatedHeirs } = computeHeirEntitlements(newHeirs, prev.parcels);
+      return {
+        ...prev,
+        heirs: updatedHeirs,
+      };
+    });
   };
 
   const handleUpdateBranches = (newBranches: any[]) => {

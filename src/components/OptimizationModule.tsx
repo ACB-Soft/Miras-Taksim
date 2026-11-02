@@ -267,23 +267,31 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
 
           {/* Allocation Matrix Table */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                Mirasçı Başına Parsel Tahsis ve Değer Tablosu
-              </h3>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                  Mirasçı Başına Parsel Tahsis ve Değer Tablosu
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Her mirasçının veraset hissesine göre hak edişi, aldığı taşınmaz değeri ve oluşan nakit ivaz borç/alacak durumu
+                </p>
+              </div>
+              <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                Toplam Portföy: <strong className="text-blue-700 dark:text-blue-400 font-bold">{formatCurrency(parcels.reduce((sum, p) => sum + (Number(p.toplamDegerTL) || 0), 0))}</strong>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <th className="py-2.5 px-4">Mirasçı</th>
-                    <th className="py-2.5 px-4">Kök Kol</th>
-                    <th className="py-2.5 px-4 text-center font-mono">Hisse</th>
-                    <th className="py-2.5 px-4 text-right font-mono">Hak Edilen (TL)</th>
-                    <th className="py-2.5 px-4">Tahsis Edilen Taşınmazlar</th>
-                    <th className="py-2.5 px-4 text-right font-mono">Verilen Toplam (TL)</th>
-                    <th className="py-2.5 px-4 text-right font-mono">Net Bakiye (İvaz)</th>
+                    <th className="py-3 px-4">Mirasçı</th>
+                    <th className="py-3 px-4">Kök Kol</th>
+                    <th className="py-3 px-4 text-center font-mono">Hisse Oranı</th>
+                    <th className="py-3 px-4 text-right font-mono">Hak Edilen Değer (TL)</th>
+                    <th className="py-3 px-4">Tahsis Edilen Taşınmaz(lar)</th>
+                    <th className="py-3 px-4 text-right font-mono">Verilen Taşınmaz Değeri</th>
+                    <th className="py-3 px-4 text-right font-mono">Net İvaz (Denkleştirme) Durumu</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -296,45 +304,57 @@ export const OptimizationModule: React.FC<OptimizationModuleProps> = ({
                         key={b.heirId}
                         className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                       >
-                        <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-slate-100">
+                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100">
                           {b.heirName}
                         </td>
-                        <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400">
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
                           {b.kokMurisKolId}
                         </td>
-                        <td className="py-2.5 px-4 text-center font-mono font-bold text-blue-700 dark:text-blue-400">
+                        <td className="py-3 px-4 text-center font-mono font-bold text-blue-700 dark:text-blue-400">
                           {b.hisseOrani}
                         </td>
-                        <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-200">
                           {formatCurrency(b.hakEdilenTL)}
                         </td>
-                        <td className="py-2.5 px-4">
+                        <td className="py-3 px-4">
                           {b.aldigiParselAdlari.length > 0 ? (
-                            <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
+                            <span className="font-mono text-xs text-blue-900 dark:text-blue-300 font-medium">
                               {b.aldigiParselAdlari.join(', ')}
                             </span>
                           ) : (
                             <span className="text-slate-400 italic text-[11px]">
-                              Taşınmaz verilmedi (Nakit alacaklı)
+                              Taşınmaz verilmedi (Tamamı nakit ivaz alacaklısı)
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100">
                           {formatCurrency(b.aldigiParsellerDegeriTL)}
                         </td>
-                        <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold">
+                        <td className="py-3 px-4 text-right font-mono tabular-nums">
                           {isDebtor && (
-                            <span className="text-red-600">
-                              +{formatCurrency(b.netFarkTL)} (Borçlu)
-                            </span>
+                            <div className="inline-flex flex-col items-end">
+                              <span className="text-red-700 dark:text-red-400 font-bold bg-red-50 dark:bg-red-950/60 px-2 py-0.5 rounded border border-red-200 dark:border-red-900">
+                                +{formatCurrency(b.netFarkTL)} BORÇLU
+                              </span>
+                              <span className="text-[10px] text-red-600 font-sans mt-0.5">
+                                (Hak edişinden fazla taşınmaz aldı, ivaz ödeyecek)
+                              </span>
+                            </div>
                           )}
                           {isCreditor && (
-                            <span className="text-emerald-600">
-                              -{formatCurrency(Math.abs(b.netFarkTL))} (Alacaklı)
-                            </span>
+                            <div className="inline-flex flex-col items-end">
+                              <span className="text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-900">
+                                -{formatCurrency(Math.abs(b.netFarkTL))} ALACAKLI
+                              </span>
+                              <span className="text-[10px] text-emerald-600 font-sans mt-0.5">
+                                (Hak edişinden eksik taşınmaz aldı, ivaz tahsil edecek)
+                              </span>
+                            </div>
                           )}
                           {!isDebtor && !isCreditor && (
-                            <span className="text-slate-400">0,00 ₺ (Denk)</span>
+                            <span className="text-slate-500 font-medium bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                              0,00 ₺ (TAM DENK)
+                            </span>
                           )}
                         </td>
                       </tr>
