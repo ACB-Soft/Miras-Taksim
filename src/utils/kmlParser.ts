@@ -289,7 +289,7 @@ export function parseKMLToParcels(kmlText: string, fileName: string): Parcel[] {
 /**
  * Parse sub-usage area KML (for fiili taksim inside a parcel)
  */
-export function parseKMLToSubUsageAreas(kmlText: string): SubUsageArea[] {
+export function parseKMLToSubUsageAreas(kmlText: string, fileName?: string): SubUsageArea[] {
   const parser = new DOMParser();
   const kmlDoc = parser.parseFromString(kmlText, 'text/xml');
   const geoJson = kml(kmlDoc);
@@ -299,6 +299,8 @@ export function parseKMLToSubUsageAreas(kmlText: string): SubUsageArea[] {
   if (!geoJson || !geoJson.features) {
     return subAreas;
   }
+
+  const cleanFileName = fileName ? fileName.replace(/\.[^/.]+$/, '').trim() : '';
 
   geoJson.features.forEach((feature, index) => {
     if (!feature.geometry) return;
@@ -320,7 +322,13 @@ export function parseKMLToSubUsageAreas(kmlText: string): SubUsageArea[] {
     if (coords.length < 3) return;
 
     const props = feature.properties || {};
-    const name = props.name || `Kullanım Alanı (${String.fromCharCode(65 + index)})`;
+    let name = props.name || '';
+    if (!name || name === 'Untitled Polygon' || name === 'İsimsiz Poligon') {
+      name = cleanFileName
+        ? (geoJson.features.length > 1 ? `${cleanFileName} (Bölüm ${index + 1})` : cleanFileName)
+        : `Kullanım Alanı (${String.fromCharCode(65 + index)})`;
+    }
+
     const alanM2 = calculatePolygonAreaM2(coords);
     const center = calculatePolygonCentroid(coords);
     const color = SUB_ZONE_COLORS[index % SUB_ZONE_COLORS.length];

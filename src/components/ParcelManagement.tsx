@@ -11,6 +11,12 @@ import {
   Layers,
   FileText,
   CheckCircle,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle,
+  Sparkles,
+  Scale,
+  RefreshCw,
   X,
   Compass,
 } from 'lucide-react';
@@ -63,37 +69,149 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
   };
 
   // Sub KML Upload Handler (For In-Parcel Fiili Taksim)
+  // Supports selecting 2 or more KML files simultaneously or multi-polygon KML files
   const handleSubKmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !subKmlModalParcel) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0 || !subKmlModalParcel) return;
 
     try {
-      const text = await file.text();
-      const subAreas = parseKMLToSubUsageAreas(text);
+      const parsedSubAreas: SubUsageArea[] = [];
+      for (const file of files) {
+        const text = await file.text();
+        const subAreas = parseKMLToSubUsageAreas(text, file.name);
+        parsedSubAreas.push(...subAreas);
+      }
 
-      if (subAreas.length === 0) {
-        alert('Alt KML dosyasında poligon alanı tespit edilemedi.');
+      if (parsedSubAreas.length === 0) {
+        alert('Seçilen KML dosyasında/dosyalarında geçerli poligon alanı tespit edilemedi.');
         return;
       }
 
-      // Attach to modal parcel
+      // Append new sub-areas to existing ones
+      const existing = subKmlModalParcel.subUsageAreas || [];
+      const combined = [...existing, ...parsedSubAreas];
+
       const updatedParcel: Parcel = {
         ...subKmlModalParcel,
-        subUsageAreas: subAreas,
+        subUsageAreas: combined,
       };
 
       setSubKmlModalParcel(updatedParcel);
 
-      // Update in main parcels list
       const updatedList = parcels.map((p) =>
         p.id === updatedParcel.id ? updatedParcel : p
       );
       onUpdateParcels(updatedList);
-      alert(`${subAreas.length} adet fiili alt kullanım bölümü tanımlandı! Şimdi her bölüm için hak sahibi mirasçıyı seçebilirsiniz.`);
+
+      const parcelArea = Number(subKmlModalParcel.alanM2) || 0;
+      const totalArea = combined.reduce((sum, s) => sum + (Number(s.alanM2) || 0), 0);
+      const diff = Math.round((totalArea - parcelArea) * 100) / 100;
+
+      if (combined.length < 2) {
+        alert(
+          `Yüklenen KML bölüm sayısı: ${combined.length} adet.\n\n⚠️ Kural Uyarısı: Fiili kullanım taksimi için en az 2 adet KML alanı yüklenmelidir. Lütfen diğer hissedarlara ait KML dosyasını da ekleyin.`
+        );
+      } else if (Math.abs(diff) > 1) {
+        alert(
+          `Toplam ${combined.length} adet fiili kullanım bölümü yüklendi.\n\n⚠️ Alan Uyuşmazlığı:\n• Yüklenen KML Alanları Toplamı: ${formatArea(totalArea)}\n• Parsel Kadastro Alanı: ${formatArea(parcelArea)}\n• Fark: ${diff > 0 ? `+${formatArea(diff)} (Fazla)` : `${formatArea(Math.abs(diff))} (Eksik)`}.\n\nPenceredeki "Parsel Büyüklüğüne Eşitle (Orantıla)" butonunu kullanarak alanları otomatik olarak eşitleyebilir veya elle düzeltebilirsiniz.`
+        );
+      } else {
+        alert(
+          `${combined.length} adet fiili kullanım alanı başarıyla yüklendi ve parsel alanı (${formatArea(parcelArea)}) ile tam eşit! Şimdi her bölüm için hak sahibi mirasçıyı seçebilirsiniz.`
+        );
+      }
     } catch (err: any) {
       alert('Alt KML okuma hatası: ' + err.message);
     } finally {
       if (subKmlInputRef.current) subKmlInputRef.current.value = '';
+    }
+  };
+
+  // Automatically calibrate & proportion sub-areas to equal the parcel's alanM2 exactly
+  const handleAutoProportionSubAreas = () => {
+    if (!subKmlModalParcel || !subKmlModalParcel.subUsageAreas || subKmlModalParcel.subUsageAreas.length === 0) return;
+    const parcelArea = Number(subKmlModalParcel.alanM2) || 0;
+    if (parcelArea <= 0) {
+      alert('Parsel büyüklüğü (m²) sıfırdan büyük olmalıdır.');
+      return;
+    }
+
+    const currentTotal = subKmlModalParcel.subUsageAreas.reduce(
+      (sum, s) => sum + (Number(s.alanM2) || 0),
+      0
+    );
+    if (currentTotal <= 0) return;
+
+    let runningSum = 0;
+    const count = subKmlModalParcel.subUsageAreas.length;
+    const calibrated = subKmlModalParcel.subUsageAreas.map((sub, idx) => {
+      if (idx === count - 1) {
+        // Last sub-area absorbs any 0.01 floating point rounding to guarantee exact equality
+        const lastArea = Math.round((parcelArea - runningSum) * 100) / 100;
+        return { ...sub, alanM2: Math.max(lastArea, 0) };
+      }
+      const scaled = Math.round(((Number(sub.alanM2) || 0) / currentTotal) * parcelArea * 100) / 100;
+      runningSum += scaled;
+      return { ...sub, alanM2: scaled };
+    });
+
+    const updatedParcel = { ...subKmlModalParcel, subUsageAreas: calibrated };
+    setSubKmlModalParcel(updatedParcel);
+    const updatedList = parcels.map((p) => (p.id === updatedParcel.id ? updatedParcel : p));
+    onUpdateParcels(updatedList);
+  };
+
+  // Update sub-area name or area
+  const handleUpdateSubArea = (subAreaId: string, updates: Partial<SubUsageArea>) => {
+    if (!subKmlModalParcel || !subKmlModalParcel.subUsageAreas) return;
+
+    const updatedSubAreas = subKmlModalParcel.subUsageAreas.map((sub) => {
+      if (sub.id === subAreaId) {
+        return { ...sub, ...updates };
+      }
+      return sub;
+    });
+
+    const updatedParcel: Parcel = {
+      ...subKmlModalParcel,
+      subUsageAreas: updatedSubAreas,
+    };
+
+    setSubKmlModalParcel(updatedParcel);
+    const updatedList = parcels.map((p) =>
+      p.id === updatedParcel.id ? updatedParcel : p
+    );
+    onUpdateParcels(updatedList);
+  };
+
+  // Delete single sub-area
+  const handleDeleteSubArea = (subAreaId: string) => {
+    if (!subKmlModalParcel || !subKmlModalParcel.subUsageAreas) return;
+    const updatedSubAreas = subKmlModalParcel.subUsageAreas.filter((s) => s.id !== subAreaId);
+    const updatedParcel: Parcel = {
+      ...subKmlModalParcel,
+      subUsageAreas: updatedSubAreas,
+    };
+    setSubKmlModalParcel(updatedParcel);
+    const updatedList = parcels.map((p) =>
+      p.id === updatedParcel.id ? updatedParcel : p
+    );
+    onUpdateParcels(updatedList);
+  };
+
+  // Clear all sub-areas
+  const handleClearAllSubAreas = () => {
+    if (!subKmlModalParcel) return;
+    if (confirm('Bu parsele ait tüm alt KML kullanım alanlarını kaldırmak istediğinize emin misiniz?')) {
+      const updatedParcel: Parcel = {
+        ...subKmlModalParcel,
+        subUsageAreas: [],
+      };
+      setSubKmlModalParcel(updatedParcel);
+      const updatedList = parcels.map((p) =>
+        p.id === updatedParcel.id ? updatedParcel : p
+      );
+      onUpdateParcels(updatedList);
     }
   };
 
@@ -123,6 +241,38 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
       p.id === updatedParcel.id ? updatedParcel : p
     );
     onUpdateParcels(updatedList);
+  };
+
+  // Validate and Complete Sub KML Modal
+  const handleCompleteSubKmlModal = () => {
+    if (!subKmlModalParcel) return;
+    const subAreas = subKmlModalParcel.subUsageAreas || [];
+
+    if (subAreas.length === 0) {
+      setSubKmlModalParcel(null);
+      return;
+    }
+
+    if (subAreas.length < 2) {
+      alert(
+        '⚠️ Kural Hatası: Parsel için fiili kullanımı göstermek için yüklenen KML dosyası / alanı en az 2 tane olmalıdır!\n\nLütfen ikinci kullanım alanını da yükleyin veya ekleyin.'
+      );
+      return;
+    }
+
+    const parcelArea = Number(subKmlModalParcel.alanM2) || 0;
+    const totalSubArea = subAreas.reduce((sum, s) => sum + (Number(s.alanM2) || 0), 0);
+    const diff = Math.round((totalSubArea - parcelArea) * 100) / 100;
+
+    if (Math.abs(diff) > 1) {
+      alert(
+        `⚠️ Kural Hatası: KML dosyalarının alan toplamı (${formatArea(totalSubArea)}), parselin toplam büyüklüğüne (${formatArea(parcelArea)}) eşit olmalıdır!\n\nŞu anki fark: ${diff > 0 ? `+${formatArea(diff)} FAZLA` : `${formatArea(Math.abs(diff))} EKSİK`}.\n\nLütfen "Parsel Büyüklüğüne Eşitle (Orantıla)" butonuna tıklayarak alanları eşitleyin veya alanları elle düzeltin.`
+      );
+      return;
+    }
+
+    alert('Fiili kullanım alanları başarıyla doğrulandı ve kaydedildi!');
+    setSubKmlModalParcel(null);
   };
 
   // Delete Parcel
@@ -548,127 +698,299 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
       )}
 
       {/* Sub-KML Modal (Fiili Taksim & Kullanım Sınırları) */}
-      {subKmlModalParcel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Parsel İçi Fiili Kullanım Sınırları ve Alt KML
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Ada {subKmlModalParcel.ada} / Parsel {subKmlModalParcel.parselNo} ({formatArea(subKmlModalParcel.alanM2)})
-                </p>
-              </div>
-              <button
-                onClick={() => setSubKmlModalParcel(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {subKmlModalParcel && (() => {
+        const subAreas = subKmlModalParcel.subUsageAreas || [];
+        const parcelArea = Number(subKmlModalParcel.alanM2) || 0;
+        const totalSubArea = Math.round(subAreas.reduce((sum, s) => sum + (Number(s.alanM2) || 0), 0) * 100) / 100;
+        const diffArea = Math.round((totalSubArea - parcelArea) * 100) / 100;
+        const isCountValid = subAreas.length >= 2;
+        const isAreaEqual = Math.abs(diffArea) <= 1;
+        const isReadyToComplete = subAreas.length === 0 || (isCountValid && isAreaEqual);
 
-            {/* Hidden Input for Sub KML */}
-            <input
-              ref={subKmlInputRef}
-              type="file"
-              accept=".kml,.xml"
-              onChange={handleSubKmlUpload}
-              className="hidden"
-            />
-
-            <div className="bg-blue-50 dark:bg-blue-950/40 p-3 rounded-lg border border-blue-200 dark:border-blue-900 text-xs text-blue-900 dark:text-blue-200 flex items-start justify-between gap-4">
-              <div>
-                <strong>Müstakil ifrazı mümkün olmayan ortak parseller için:</strong><br />
-                Bu parsel içerisindeki bölünmüş kullanım sınırlarını içeren alt KML dosyasını yükleyin. Her bir kullanım bölgesini bir mirasçıya tahsis ederek noter onayına hazır <em>"Fiili Taksim ve Kullanım Sözleşmesi"</em> oluşturabilirsiniz.
-              </div>
-              <button
-                onClick={() => subKmlInputRef.current?.click()}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 transition"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                Alt KML Seç
-              </button>
-            </div>
-
-            {/* Sub Usage Areas List */}
-            <div className="flex-1 overflow-y-auto space-y-3 min-h-[160px]">
-              {(!subKmlModalParcel.subUsageAreas || subKmlModalParcel.subUsageAreas.length === 0) ? (
-                <div className="py-8 text-center text-xs text-slate-500">
-                  Bu parsel için henüz alt KML yüklenmedi.<br />
-                  Yukarıdaki <strong>"Alt KML Seç"</strong> butonunu kullanarak parsel içi poligonları ekleyebilirsiniz.
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[92vh] flex flex-col">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-blue-600" />
+                    Parsel İçi Fiili Kullanım Sınırları ve Alt KML
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Ada {subKmlModalParcel.ada} / Parsel {subKmlModalParcel.parselNo} — Kadastro Yüzölçümü:{' '}
+                    <strong className="text-blue-700 dark:text-blue-400 font-bold">{formatArea(parcelArea)}</strong>
+                  </p>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Tanımlı Fiili Kullanım Bölümleri ({subKmlModalParcel.subUsageAreas.length})
+                <button
+                  onClick={() => setSubKmlModalParcel(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Hidden Input for Multi-file Sub KML */}
+              <input
+                ref={subKmlInputRef}
+                type="file"
+                accept=".kml,.xml"
+                multiple
+                onChange={handleSubKmlUpload}
+                className="hidden"
+              />
+
+              {/* Information & Action Box */}
+              <div className="bg-blue-50 dark:bg-blue-950/40 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900 text-xs text-blue-950 dark:text-blue-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <Scale className="w-3.5 h-3.5 text-blue-600" />
+                    Fiili Taksim Kuralları (Müstakil ifrazı mümkün olmayan ortak parseller için):
                   </div>
-                  {subKmlModalParcel.subUsageAreas.map((sub, idx) => (
-                    <div
-                      key={sub.id}
-                      className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+                  <ul className="text-[11px] text-blue-900/80 dark:text-blue-300/80 list-disc list-inside space-y-0.5">
+                    <li><strong>1. Kural:</strong> En az <strong>2 adet</strong> KML kullanım alanı yüklenmelidir (çoklu seçim yapabilirsiniz).</li>
+                    <li><strong>2. Kural:</strong> Yüklenen KML alanlarının toplamı parselin kadastro alanına (<strong>{formatArea(parcelArea)}</strong>) eşit olmalıdır.</li>
+                  </ul>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => subKmlInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm text-xs whitespace-nowrap"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    + Alt KML Dosyaları Seç
+                  </button>
+                  {subAreas.length > 0 && (
+                    <button
+                      onClick={handleClearAllSubAreas}
+                      className="px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg border border-red-200 dark:border-red-900 transition whitespace-nowrap"
+                      title="Tüm alt kullanım bölümlerini siler"
                     >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-3.5 h-3.5 rounded-full shrink-0"
-                          style={{ backgroundColor: sub.color || '#3B82F6' }}
-                        />
+                      Temizle
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Real-time Validation Status Panel (En az 2 alan + Alan Toplamı Eşitliği) */}
+              {subAreas.length > 0 && (
+                <div className="space-y-2 p-3.5 rounded-xl border bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Scale className="w-3.5 h-3.5" />
+                    Zorunlu Kural Doğrulama Durumu
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {/* Badge 1: Kural 1 (En az 2 KML alanı) */}
+                    <div
+                      className={`p-2.5 rounded-lg border flex items-center gap-2 text-xs ${
+                        isCountValid
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                          : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                      }`}
+                    >
+                      {isCountValid ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      )}
+                      <div>
+                        <strong>1. Kural: Bölüm Sayısı</strong>
+                        <div className="text-[11px]">
+                          {isCountValid
+                            ? `En az 2 alan kuralı sağlandı (${subAreas.length} Bölüm)`
+                            : `Yetersiz! En az 2 alan yüklenmelidir (${subAreas.length}/2)`}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Badge 2: Kural 2 (Alan Toplamı Eşitliği) */}
+                    <div
+                      className={`p-2.5 rounded-lg border flex flex-col justify-between gap-1.5 text-xs ${
+                        isAreaEqual
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                          : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {isAreaEqual ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        )}
                         <div>
-                          <div className="font-bold text-slate-900 dark:text-slate-100">
-                            {sub.name}
+                          <strong>2. Kural: Alan Toplamı Eşitliği</strong>
+                          <div className="text-[11px] font-mono">
+                            KML Toplamı: <strong>{formatArea(totalSubArea)}</strong> / Parsel:{' '}
+                            <strong>{formatArea(parcelArea)}</strong>
                           </div>
-                          <div className="text-[11px] text-slate-500 font-mono">
-                            Yüzölçümü: {formatArea(sub.alanM2)}
-                          </div>
+                          {!isAreaEqual && (
+                            <div className="text-[11px] font-bold text-red-700 dark:text-red-300 mt-0.5">
+                              Fark: {diffArea > 0 ? `+${formatArea(diffArea)} FAZLA` : `${formatArea(Math.abs(diffArea))} EKSİK`}
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      {/* Heir Selector */}
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <span className="text-[11px] text-slate-500 shrink-0">Tahsis Edilen:</span>
-                        <select
-                          value={sub.assignedHeirId || ''}
-                          onChange={(e) => handleAssignHeirToSubArea(sub.id, e.target.value)}
-                          className="p-1.5 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex-1 sm:w-48"
+                      {!isAreaEqual && (
+                        <button
+                          onClick={handleAutoProportionSubAreas}
+                          className="mt-1 flex items-center justify-center gap-1.5 px-2.5 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-semibold text-[11px] transition shadow-xs"
+                          title="Alanları parsel büyüklüğüne göre orantılayarak tam eşitler"
                         >
-                          <option value="">-- Henüz Tahsis Edilmedi --</option>
-                          {heirs.map((h) => (
-                            <option key={h.id} value={h.id}>
-                              {h.adSoyad} ({h.hisseOrani})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                          <Sparkles className="w-3 h-3" />
+                          Parsel Büyüklüğüne Eşitle (Orantıla)
+                        </button>
+                      )}
                     </div>
-                  ))}
+                  </div>
                 </div>
               )}
-            </div>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              {onNavigateToNotary && subKmlModalParcel.subUsageAreas && subKmlModalParcel.subUsageAreas.length > 0 ? (
-                <button
-                  onClick={() => {
-                    setSubKmlModalParcel(null);
-                    onNavigateToNotary();
-                  }}
-                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  Noter Fiili Taksim Sözleşmesini Gör
-                </button>
-              ) : <div />}
+              {/* Sub Usage Areas List */}
+              <div className="flex-1 overflow-y-auto space-y-2.5 min-h-[160px] pr-1">
+                {subAreas.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-slate-500 bg-slate-50/50 dark:bg-slate-800/20 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                    <Layers className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    Bu parsel için henüz alt KML yüklenmedi.<br />
+                    Yukarıdaki <strong>"+ Alt KML Dosyaları Seç"</strong> butonuna basarak en az 2 adet KML dosyasını aynı anda seçebilirsiniz.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 px-1">
+                      <span>Tanımlı Fiili Kullanım Bölümleri ({subAreas.length})</span>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        Toplam: <strong className={isAreaEqual ? 'text-emerald-600' : 'text-red-600'}>{formatArea(totalSubArea)}</strong> / {formatArea(parcelArea)}
+                      </span>
+                    </div>
 
-              <button
-                onClick={() => setSubKmlModalParcel(null)}
-                className="px-4 py-1.5 text-xs font-semibold rounded bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:opacity-90"
-              >
-                Tamamla
-              </button>
+                    {subAreas.map((sub, idx) => {
+                      const pct = parcelArea > 0 ? ((Number(sub.alanM2) || 0) / parcelArea) * 100 : 0;
+
+                      return (
+                        <div
+                          key={sub.id}
+                          className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="flex items-center gap-2.5 flex-1 min-w-0 w-full md:w-auto">
+                            <span
+                              className="w-4 h-4 rounded-full shrink-0 shadow-xs"
+                              style={{ backgroundColor: sub.color || '#3B82F6' }}
+                            />
+                            {/* Editable Name */}
+                            <div className="flex-1 min-w-0">
+                              <input
+                                type="text"
+                                value={sub.name}
+                                onChange={(e) => handleUpdateSubArea(sub.id, { name: e.target.value })}
+                                placeholder="Bölüm Adı"
+                                className="w-full p-1 text-xs font-bold rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Editable Area (m²) and Percentage */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[11px] text-slate-500 font-medium">Alan:</span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={sub.alanM2}
+                                onChange={(e) =>
+                                  handleUpdateSubArea(sub.id, {
+                                    alanM2: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-28 p-1 text-xs font-mono font-bold rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-right pr-6"
+                              />
+                              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">
+                                m²
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                              %{pct.toFixed(1)}
+                            </span>
+                          </div>
+
+                          {/* Heir Selector */}
+                          <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                            <span className="text-[11px] text-slate-500 shrink-0">Tahsis Edilen:</span>
+                            <select
+                              value={sub.assignedHeirId || ''}
+                              onChange={(e) => handleAssignHeirToSubArea(sub.id, e.target.value)}
+                              className="p-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex-1 md:w-44 font-medium"
+                            >
+                              <option value="">-- Tahsis Yapılmadı --</option>
+                              {heirs.map((h) => (
+                                <option key={h.id} value={h.id}>
+                                  {h.adSoyad} ({h.hisseOrani})
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSubArea(sub.id)}
+                              className="p-1 text-slate-400 hover:text-red-600 transition"
+                              title="Bu bölümü sil"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                {onNavigateToNotary && subAreas.length > 0 ? (
+                  <button
+                    onClick={() => {
+                      if (!isReadyToComplete) {
+                        alert('Lütfen önce 2 zorunlu kuralı sağlayınız: En az 2 bölüm olmalı ve alan toplamı parsel alanına eşit olmalıdır.');
+                        return;
+                      }
+                      setSubKmlModalParcel(null);
+                      onNavigateToNotary();
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Noter Fiili Taksim Sözleşmesini Gör
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSubKmlModalParcel(null)}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    onClick={handleCompleteSubKmlModal}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-lg transition shadow-sm ${
+                      isReadyToComplete
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Doğrula ve Tamamla
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
