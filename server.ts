@@ -77,6 +77,179 @@ Rapor profesyonel, güven verici, uzlaştırıcı ve analitik bir dille hazırla
   }
 });
 
+// Fixed allowlisted TKGM MEGSIS CBS API base URL (never overridden by client)
+const TKGM_API_BASE = 'https://cbsapi.tkgm.gov.tr/megsiswebapi.v3.1/api';
+
+async function fetchTkgmUpstream(endpointPath: string): Promise<{ ok: boolean; status: number; data: any }> {
+  const targetUrl = `${TKGM_API_BASE}${endpointPath}`;
+  const response = await fetch(targetUrl, {
+    method: 'GET',
+    headers: {
+      Origin: 'https://parselsorgu.tkgm.gov.tr',
+      Referer: 'https://parselsorgu.tkgm.gov.tr/',
+      Accept: 'application/json',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    },
+    signal: AbortSignal.timeout(12000),
+  });
+
+  const text = await response.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+
+  return { ok: response.ok, status: response.status, data };
+}
+
+function mapAdminFeatures(payload: any): { id: number; text: string }[] {
+  const features = Array.isArray(payload?.features) ? payload.features : [];
+  return features
+    .map((f: any) => ({
+      id: Number(f?.properties?.id),
+      text: String(f?.properties?.text || '').trim(),
+    }))
+    .filter((item: { id: number; text: string }) => Number.isFinite(item.id) && item.id > 0 && item.text.length > 0)
+    .sort((a: { text: string }, b: { text: string }) => a.text.localeCompare(b.text, 'tr'));
+}
+
+// 1. TKGM İl Listesi
+app.get('/api/tkgm/iller', async (_req, res) => {
+  try {
+    const result = await fetchTkgmUpstream('/idariYapi/ilListe');
+    if (!result.ok || !result.data) {
+      return res.status(502).json({ error: 'TKGM il listesi şu anda alınamadı.' });
+    }
+    return res.json({ items: mapAdminFeatures(result.data) });
+  } catch (err: any) {
+    console.error('TKGM ilListe error:', err?.message);
+    return res.status(504).json({ error: 'TKGM servisine bağlanılamadı veya zaman aşımı oluştu.' });
+  }
+});
+
+// 2. TKGM İlçe Listesi
+app.get('/api/tkgm/ilceler/:ilId', async (req, res) => {
+  const { ilId } = req.params;
+  if (!/^\d{1,10}$/.test(ilId)) {
+    return res.status(400).json({ error: 'Geçersiz il kodu.' });
+  }
+  try {
+    const result = await fetchTkgmUpstream(`/idariYapi/ilceListe/${ilId}`);
+    if (!result.ok || !result.data) {
+      return res.status(502).json({ error: 'TKGM ilçe listesi alınamadı.' });
+    }
+    return res.json({ items: mapAdminFeatures(result.data) });
+  } catch (err: any) {
+    console.error('TKGM ilceListe error:', err?.message);
+    return res.status(504).json({ error: 'TKGM ilçe listesi zaman aşımına uğradı.' });
+  }
+});
+
+// 3. TKGM Mahalle / Köy Listesi
+app.get('/api/tkgm/mahalleler/:ilceId', async (req, res) => {
+  const { ilceId } = req.params;
+  if (!/^\d{1,10}$/.test(ilceId)) {
+    return res.status(400).json({ error: 'Geçersiz ilçe kodu.' });
+  }
+  try {
+    const result = await fetchTkgmUpstream(`/idariYapi/mahalleListe/${ilceId}`);
+    if (!result.ok || !result.data) {
+      return res.status(502).json({ error: 'TKGM mahalle listesi alınamadı.' });
+    }
+    return res.json({ items: mapAdminFeatures(result.data) });
+  } catch (err: any) {
+    console.error('TKGM mahalleListe error:', err?.message);
+    return res.status(504).json({ error: 'TKGM mahalle listesi zaman aşımına uğradı.' });
+  }
+});
+
+// 4. TKGM Koordinat ile Parsel Sorgulama
+app.get('/api/tkgm/parsel/koordinat', async (req, res) => {
+  const latRaw = String(req.query.lat || '').trim();
+  const lngRaw = String(req.query.lng || '').trim();
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+
+  if (
+    !latRaw ||
+    !lngRaw ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return res.status(400).json({ error: 'Geçerli enlem ve boylam koordinatları gereklidir.' });
+  }
+
+  try {
+    const result = await fetchTkgmUpstream(`/parsel/${lat}/${lng}/`);
+    if (result.status === 404 || !result.data || (!result.data.properties && !result.data.features?.[0])) {
+      return res.status(404).json({
+        error: 'Bu koordinatta kayıtlı bir kadastro parseli bulunamadı (tescil dışı alan veya yol olabilir).',
+      });
+    }
+    if (!result.ok) {
+      return res.status(result.status === 429 ? 429 : 502).json({
+        error:
+          result.status === 429
+            ? 'TKGM servisinde yoğunluk nedeniyle geçici sınır aşıldı, lütfen biraz sonra tekrar deneyin.'
+            : 'TKGM parsel sorgu servisi geçici olarak yanıt veremedi.',
+      });
+    }
+
+    const feature = result.data.type === 'FeatureCollection' ? result.data.features?.[0] : result.data;
+    if (!feature || !feature.properties) {
+      return res.status(404).json({ error: 'TKGM yanıtında parsel kaydı bulunamadı.' });
+    }
+    return res.json({ feature });
+  } catch (err: any) {
+    console.error('TKGM coordinate lookup error:', err?.message);
+    return res.status(504).json({ error: 'TKGM parsel sorgusuna bağlanılamadı veya zaman aşımı oluştu.' });
+  }
+});
+
+// 5. TKGM Mahalle / Ada / Parsel ile Sorgulama
+app.get('/api/tkgm/parsel/ada', async (req, res) => {
+  const mahalleId = String(req.query.mahalleId || '').trim();
+  const ada = String(req.query.ada || '').trim();
+  const parsel = String(req.query.parsel || '').trim();
+
+  if (!/^\d{1,12}$/.test(mahalleId) || !/^\d{1,10}$/.test(ada) || !/^\d{1,10}$/.test(parsel)) {
+    return res.status(400).json({ error: 'Mahalle kodu, ada ve parsel numarası geçerli tam sayı olmalıdır.' });
+  }
+
+  try {
+    const result = await fetchTkgmUpstream(`/parsel/${mahalleId}/${ada}/${parsel}`);
+    if (result.status === 404 || !result.data || (!result.data.properties && !result.data.features?.[0])) {
+      return res.status(404).json({
+        error: `Girilen mahallede ${ada} ada / ${parsel} parsel numarası ile kayıt bulunamadı.`,
+      });
+    }
+    if (!result.ok) {
+      return res.status(result.status === 429 ? 429 : 502).json({
+        error:
+          result.status === 429
+            ? 'TKGM servisinde yoğunluk nedeniyle geçici sınır aşıldı, lütfen biraz sonra tekrar deneyin.'
+            : 'TKGM ada/parsel sorgu servisi geçici olarak yanıt veremedi.',
+      });
+    }
+
+    const feature = result.data.type === 'FeatureCollection' ? result.data.features?.[0] : result.data;
+    if (!feature || !feature.properties) {
+      return res.status(404).json({ error: 'TKGM yanıtında parsel kaydı bulunamadı.' });
+    }
+    return res.json({ feature });
+  } catch (err: any) {
+    console.error('TKGM ada/parsel lookup error:', err?.message);
+    return res.status(504).json({ error: 'TKGM ada/parsel sorgusuna bağlanılamadı veya zaman aşımı oluştu.' });
+  }
+});
+
 // Dev server or Production static serving
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {

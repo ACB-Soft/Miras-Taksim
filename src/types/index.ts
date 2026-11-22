@@ -27,7 +27,29 @@ export interface Parcel {
   coordinates: [number, number][]; // [lat, lng][] outer boundary
   center?: [number, number];
   subUsageAreas?: SubUsageArea[]; // Parsel içi alt fiili kullanım alanları (Alt KML)
+  tkgmSorguTarihi?: string; // Son TKGM eşleştirme tarihi (ISO)
+  tkgmZeminId?: string; // TKGM zemin kimlik numarası
   notlar?: string;
+}
+
+export interface TkgmAdminItem {
+  id: number;
+  text: string;
+}
+
+export interface TkgmParcelResult {
+  il: string;
+  ilce: string;
+  mahalle: string;
+  ada: string;
+  parselNo: string;
+  pafta: string;
+  nitelik: string;
+  mevkii: string;
+  alanM2: number;
+  zeminId?: string;
+  coordinates: [number, number][]; // [lat, lng][]
+  center: [number, number];
 }
 
 export interface HeirBranch {
