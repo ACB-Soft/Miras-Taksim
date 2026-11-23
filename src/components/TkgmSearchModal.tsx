@@ -306,9 +306,27 @@ export const TkgmSearchModal: React.FC<TkgmSearchModalProps> = ({
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-4">
           {errorMsg && (
-            <div className="p-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-xs text-red-800 dark:text-red-300 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-              <span>{errorMsg}</span>
+            <div className="p-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-xs text-red-800 dark:text-red-300 flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
+              </div>
+              {iller.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg(null);
+                    setLoadingIller(true);
+                    fetchTkgmIller()
+                      .then((items) => setIller(items))
+                      .catch((err: any) => setErrorMsg(err?.message || 'İl listesi yüklenemedi.'))
+                      .finally(() => setLoadingIller(false));
+                  }}
+                  className="px-2 py-1 text-[11px] font-semibold rounded bg-red-600 text-white hover:bg-red-700 shrink-0"
+                >
+                  Tekrar Dene
+                </button>
+              )}
             </div>
           )}
 

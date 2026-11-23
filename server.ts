@@ -80,6 +80,11 @@ Rapor profesyonel, güven verici, uzlaştırıcı ve analitik bir dille hazırla
 // Fixed allowlisted TKGM MEGSIS CBS API base URL (never overridden by client)
 const TKGM_API_BASE = 'https://cbsapi.tkgm.gov.tr/megsiswebapi.v3.1/api';
 
+// Server-side cache for TKGM administrative lists (provinces, districts, neighborhoods)
+let cachedIller: { id: number; text: string }[] | null = null;
+const cachedIlceler: Record<string, { id: number; text: string }[]> = {};
+const cachedMahalleler: Record<string, { id: number; text: string }[]> = {};
+
 async function fetchTkgmUpstream(endpointPath: string): Promise<{ ok: boolean; status: number; data: any }> {
   const targetUrl = `${TKGM_API_BASE}${endpointPath}`;
   const response = await fetch(targetUrl, {
@@ -91,7 +96,7 @@ async function fetchTkgmUpstream(endpointPath: string): Promise<{ ok: boolean; s
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     },
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(20000),
   });
 
   const text = await response.text();
@@ -118,12 +123,17 @@ function mapAdminFeatures(payload: any): { id: number; text: string }[] {
 
 // 1. TKGM İl Listesi
 app.get('/api/tkgm/iller', async (_req, res) => {
+  if (cachedIller && cachedIller.length > 0) {
+    return res.json({ items: cachedIller });
+  }
   try {
     const result = await fetchTkgmUpstream('/idariYapi/ilListe');
     if (!result.ok || !result.data) {
       return res.status(502).json({ error: 'TKGM il listesi şu anda alınamadı.' });
     }
-    return res.json({ items: mapAdminFeatures(result.data) });
+    const items = mapAdminFeatures(result.data);
+    if (items.length > 0) cachedIller = items;
+    return res.json({ items });
   } catch (err: any) {
     console.error('TKGM ilListe error:', err?.message);
     return res.status(504).json({ error: 'TKGM servisine bağlanılamadı veya zaman aşımı oluştu.' });
@@ -136,12 +146,17 @@ app.get('/api/tkgm/ilceler/:ilId', async (req, res) => {
   if (!/^\d{1,10}$/.test(ilId)) {
     return res.status(400).json({ error: 'Geçersiz il kodu.' });
   }
+  if (cachedIlceler[ilId]) {
+    return res.json({ items: cachedIlceler[ilId] });
+  }
   try {
     const result = await fetchTkgmUpstream(`/idariYapi/ilceListe/${ilId}`);
     if (!result.ok || !result.data) {
       return res.status(502).json({ error: 'TKGM ilçe listesi alınamadı.' });
     }
-    return res.json({ items: mapAdminFeatures(result.data) });
+    const items = mapAdminFeatures(result.data);
+    if (items.length > 0) cachedIlceler[ilId] = items;
+    return res.json({ items });
   } catch (err: any) {
     console.error('TKGM ilceListe error:', err?.message);
     return res.status(504).json({ error: 'TKGM ilçe listesi zaman aşımına uğradı.' });
@@ -154,12 +169,17 @@ app.get('/api/tkgm/mahalleler/:ilceId', async (req, res) => {
   if (!/^\d{1,10}$/.test(ilceId)) {
     return res.status(400).json({ error: 'Geçersiz ilçe kodu.' });
   }
+  if (cachedMahalleler[ilceId]) {
+    return res.json({ items: cachedMahalleler[ilceId] });
+  }
   try {
     const result = await fetchTkgmUpstream(`/idariYapi/mahalleListe/${ilceId}`);
     if (!result.ok || !result.data) {
       return res.status(502).json({ error: 'TKGM mahalle listesi alınamadı.' });
     }
-    return res.json({ items: mapAdminFeatures(result.data) });
+    const items = mapAdminFeatures(result.data);
+    if (items.length > 0) cachedMahalleler[ilceId] = items;
+    return res.json({ items });
   } catch (err: any) {
     console.error('TKGM mahalleListe error:', err?.message);
     return res.status(504).json({ error: 'TKGM mahalle listesi zaman aşımına uğradı.' });
