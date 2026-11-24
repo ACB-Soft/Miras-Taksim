@@ -1,8 +1,8 @@
 import React from 'react';
 import {
+  Home,
   MapPin,
   Users,
-  GitBranch,
   Scale,
   Coins,
   FileSignature,
@@ -11,6 +11,7 @@ import {
 import { ProjectState } from '../types';
 
 export type ActiveModule =
+  | 'home'
   | 'parcels'
   | 'heirs'
   | 'optimization'
@@ -30,6 +31,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   project,
 }) => {
   const navItems = [
+    {
+      id: 'home' as ActiveModule,
+      label: 'Ana Sayfa',
+      icon: Home,
+      sublabel: 'Proje Başlat & Devam Et',
+    },
     {
       id: 'parcels' as ActiveModule,
       label: 'Parsel & Harita',

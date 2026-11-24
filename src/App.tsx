@@ -5,10 +5,19 @@
 
 import React, { useEffect, useState } from 'react';
 import { ProjectState, TaksimScenario } from './types';
-import { loadProjectFromStorage, saveProjectToStorage } from './utils/storage';
+import {
+  createFreshProjectState,
+  deleteSavedProject,
+  loadProjectFromStorage,
+  loadSavedProjects,
+  renameSavedProject,
+  saveProjectToLibrary,
+} from './utils/storage';
+import { exportProjectToZip, importProjectFromZip } from './utils/zipArchive';
 import { computeHeirEntitlements, calculateNetShareFromRelative } from './utils/fractionEngine';
 import { Header } from './components/Header';
 import { Sidebar, ActiveModule } from './components/Sidebar';
+import { HomeTab } from './components/HomeTab';
 import { ParcelManagement } from './components/ParcelManagement';
 import { HeirManagement } from './components/HeirManagement';
 import { OptimizationModule } from './components/OptimizationModule';
@@ -38,16 +47,30 @@ const INITIAL_PROJECT_STATE: ProjectState = {
   scenarios: {},
 };
 
+function hasMeaningfulData(p: ProjectState): boolean {
+  return Boolean(
+    p.id ||
+      p.parcels.length > 0 ||
+      p.heirs.length > 0 ||
+      (p.projectName && p.projectName !== INITIAL_PROJECT_STATE.projectName)
+  );
+}
+
 export default function App() {
   const [project, setProject] = useState<ProjectState>(INITIAL_PROJECT_STATE);
-  const [activeModule, setActiveModule] = useState<ActiveModule>('parcels');
+  const [savedProjects, setSavedProjects] = useState<ProjectState[]>([]);
+  const [activeModule, setActiveModule] = useState<ActiveModule>('home');
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from storage on initial mount
+  // Load current project & multi-project library on initial mount
   useEffect(() => {
     async function init() {
       try {
-        const saved = await loadProjectFromStorage();
+        const [saved, library] = await Promise.all([
+          loadProjectFromStorage(),
+          loadSavedProjects(),
+        ]);
+        setSavedProjects(library);
         if (saved && saved.parcels) {
           setProject(saved);
         }
@@ -60,11 +83,89 @@ export default function App() {
     init();
   }, []);
 
-  // Auto-save to storage on project state changes
+  // Auto-save active project to storage & library when project has been initialized/edited
   useEffect(() => {
     if (!isLoaded) return;
-    saveProjectToStorage(project);
+    if (!hasMeaningfulData(project)) return;
+
+    let cancelled = false;
+    saveProjectToLibrary(project).then((updatedLibrary) => {
+      if (!cancelled) {
+        setSavedProjects(updatedLibrary);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [project, isLoaded]);
+
+  // Home Page Handlers
+  const handleNewProject = async (projectName: string, rootOwnerName?: string) => {
+    const fresh = createFreshProjectState(projectName, rootOwnerName);
+    setProject(fresh);
+    const updatedLibrary = await saveProjectToLibrary(fresh);
+    setSavedProjects(updatedLibrary);
+    setActiveModule('parcels');
+  };
+
+  const handleOpenProject = async (target: ProjectState) => {
+    const normalized: ProjectState = {
+      ...target,
+      id: target.id || 'proj_' + Date.now().toString(36),
+    };
+    setProject(normalized);
+    const updatedLibrary = await saveProjectToLibrary(normalized);
+    setSavedProjects(updatedLibrary);
+    setActiveModule('parcels');
+  };
+
+  const handleRenameSavedProject = async (projectId: string, newName: string) => {
+    const updatedLibrary = await renameSavedProject(projectId, newName);
+    setSavedProjects(updatedLibrary);
+    if (project.id === projectId) {
+      setProject((prev) => ({ ...prev, projectName: newName }));
+    }
+  };
+
+  const handleDeleteSavedProject = async (projectId: string) => {
+    const updatedLibrary = await deleteSavedProject(projectId);
+    setSavedProjects(updatedLibrary);
+    if (project.id === projectId) {
+      setProject(INITIAL_PROJECT_STATE);
+    }
+  };
+
+  const handleImportProjectFile = async (file: File) => {
+    let imported: ProjectState;
+    const lowerName = file.name.toLowerCase();
+
+    if (lowerName.endsWith('.json')) {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || !Array.isArray(parsed.parcels) || !Array.isArray(parsed.heirs)) {
+        throw new Error('Geçersiz JSON yapısı: Parsel veya mirasçı verisi eksik.');
+      }
+      imported = parsed;
+    } else {
+      imported = await importProjectFromZip(file);
+    }
+
+    const withId: ProjectState = {
+      ...imported,
+      id: imported.id || 'proj_' + Date.now().toString(36),
+      createdAt: imported.createdAt || new Date().toISOString(),
+      lastSaved: new Date().toISOString(),
+    };
+    setProject(withId);
+    const updatedLibrary = await saveProjectToLibrary(withId);
+    setSavedProjects(updatedLibrary);
+    setActiveModule('parcels');
+  };
+
+  const handleExportProjectZip = async (targetProject: ProjectState) => {
+    await exportProjectToZip(targetProject);
+  };
 
   // Update handlers
   const handleUpdateParcels = (newParcels: any[]) => {
@@ -72,6 +173,7 @@ export default function App() {
       const { updatedHeirs } = computeHeirEntitlements(prev.heirs, newParcels);
       return {
         ...prev,
+        id: prev.id || 'proj_' + Date.now().toString(36),
         parcels: newParcels,
         heirs: updatedHeirs,
       };
@@ -83,6 +185,7 @@ export default function App() {
       const { updatedHeirs } = computeHeirEntitlements(newHeirs, prev.parcels);
       return {
         ...prev,
+        id: prev.id || 'proj_' + Date.now().toString(36),
         heirs: updatedHeirs,
       };
     });
@@ -107,6 +210,7 @@ export default function App() {
 
       return {
         ...prev,
+        id: prev.id || 'proj_' + Date.now().toString(36),
         branches: newBranches,
         heirs: finalHeirs,
       };
@@ -116,6 +220,7 @@ export default function App() {
   const handleUpdateRootOwner = (name: string, title?: string) => {
     setProject((prev) => ({
       ...prev,
+      id: prev.id || 'proj_' + Date.now().toString(36),
       rootOwnerName: name,
       rootOwnerTitle: title ?? prev.rootOwnerTitle,
     }));
@@ -124,6 +229,7 @@ export default function App() {
   const handleUpdateGenerationNames = (names: Record<number, string>) => {
     setProject((prev) => ({
       ...prev,
+      id: prev.id || 'proj_' + Date.now().toString(36),
       generationNames: names,
     }));
   };
@@ -137,6 +243,7 @@ export default function App() {
   ) => {
     setProject((prev) => ({
       ...prev,
+      id: prev.id || 'proj_' + Date.now().toString(36),
       scenarios: newScenarios,
       selectedScenarioMode: activeMode,
     }));
@@ -144,6 +251,8 @@ export default function App() {
 
   const getModuleTitle = (mod: ActiveModule): string => {
     switch (mod) {
+      case 'home':
+        return 'Ana Sayfa';
       case 'parcels':
         return 'Parsel & Harita Yönetimi';
       case 'heirs':
@@ -161,13 +270,22 @@ export default function App() {
     }
   };
 
+  const handleSetProjectWithId = (nextProject: ProjectState) => {
+    setProject({
+      ...nextProject,
+      id: nextProject.id || 'proj_' + Date.now().toString(36),
+      createdAt: nextProject.createdAt || new Date().toISOString(),
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
       {/* Top Header */}
       <Header
         project={project}
-        onProjectUpdate={setProject}
+        onProjectUpdate={handleSetProjectWithId}
         activeModuleTitle={getModuleTitle(activeModule)}
+        onNavigateHome={() => setActiveModule('home')}
       />
 
       {/* Main Workspace Frame */}
@@ -182,6 +300,19 @@ export default function App() {
         {/* Content Viewport */}
         <main className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50">
           <div className="max-w-7xl mx-auto min-h-full">
+            {activeModule === 'home' && (
+              <HomeTab
+                savedProjects={savedProjects}
+                currentProject={project}
+                onNewProject={handleNewProject}
+                onOpenProject={handleOpenProject}
+                onRenameProject={handleRenameSavedProject}
+                onDeleteProject={handleDeleteSavedProject}
+                onImportProjectFile={handleImportProjectFile}
+                onExportProjectZip={handleExportProjectZip}
+              />
+            )}
+
             {activeModule === 'parcels' && (
               <ParcelManagement
                 parcels={project.parcels}
@@ -225,7 +356,7 @@ export default function App() {
             {activeModule === 'notary' && <NotaryModule project={project} />}
 
             {activeModule === 'archive' && (
-              <ArchiveModule project={project} onUpdateProject={setProject} />
+              <ArchiveModule project={project} onUpdateProject={handleSetProjectWithId} />
             )}
           </div>
         </main>

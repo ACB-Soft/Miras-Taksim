@@ -114,6 +114,7 @@ export interface TaksimScenario {
 }
 
 export interface ProjectState {
+  id?: string;
   projectName: string;
   aciklama?: string;
   rootOwnerName?: string; // 1. Kuşak ilk mülk sahibi adı (örn. "İlk Mülk Sahibi" veya "Mehmet Bey")
@@ -127,5 +128,6 @@ export interface ProjectState {
     pure_independent?: TaksimScenario;
     sibling_consolidation?: TaksimScenario;
   };
+  createdAt?: string;
   lastSaved?: string;
 }

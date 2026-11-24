@@ -9,12 +9,14 @@ interface HeaderProps {
   project: ProjectState;
   onProjectUpdate: (newProject: ProjectState) => void;
   activeModuleTitle: string;
+  onNavigateHome?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   project,
   onProjectUpdate,
   activeModuleTitle,
+  onNavigateHome,
 }) => {
   const isOnline = useOnlineStatus();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,9 +48,13 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 flex items-center justify-between gap-8 shrink-0 no-print">
       {/* Zone 1: Single-line Brand & Project Context */}
       <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-        <a href="/" className="text-base font-extrabold tracking-tight text-blue-900 dark:text-blue-400">
+        <button
+          type="button"
+          onClick={onNavigateHome}
+          className="text-base font-extrabold tracking-tight text-blue-900 dark:text-blue-400 hover:opacity-80 transition cursor-pointer"
+        >
           MirasTaksim
-        </a>
+        </button>
         <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">/</span>
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 max-w-xs truncate">
           {project.projectName || 'Miras Taksim Projesi'}
