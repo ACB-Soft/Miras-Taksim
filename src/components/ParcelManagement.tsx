@@ -1,17 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Parcel, Heir, SubUsageArea } from '../types';
 import { parseKMLToParcels, parseKMLToSubUsageAreas } from '../utils/kmlParser';
-import { calculatePolygonCentroid } from '../utils/polygonMath';
 import { formatCurrency, formatArea } from '../utils/fractionEngine';
-import {
-  mergeParcelWithTkgm,
-  queryTkgmParcelByCoords,
-} from '../services/tkgmService';
 import { MapModule } from './MapModule';
-import { TkgmSearchModal } from './TkgmSearchModal';
 import {
   Upload,
-  Plus,
   Trash2,
   Edit2,
   Layers,
@@ -22,11 +15,8 @@ import {
   AlertCircle,
   Sparkles,
   Scale,
-  RefreshCw,
   X,
   Compass,
-  Loader2,
-  Search,
 } from 'lucide-react';
 
 interface ParcelManagementProps {
@@ -51,24 +41,6 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
   const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
   const [subKmlModalParcel, setSubKmlModalParcel] = useState<Parcel | null>(null);
 
-  // TKGM Integration states
-  const [showTkgmModal, setShowTkgmModal] = useState(false);
-  const [matchingParcelIds, setMatchingParcelIds] = useState<Record<string, boolean>>({});
-  const [parcelTkgmErrors, setParcelTkgmErrors] = useState<Record<string, string>>({});
-  const [batchState, setBatchState] = useState<{
-    running: boolean;
-    current: number;
-    total: number;
-    successCount: number;
-    failCount: number;
-    summaryMsg?: string;
-  } | null>(null);
-  const batchCancelRef = useRef(false);
-  const [editingTkgmLoading, setEditingTkgmLoading] = useState(false);
-  const [editingTkgmMsg, setEditingTkgmMsg] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
   const [uploadBannerMsg, setUploadBannerMsg] = useState<string | null>(null);
 
   // Always keep latest parcels reference for sequential async updates
@@ -76,180 +48,6 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
   useEffect(() => {
     parcelsRef.current = parcels;
   }, [parcels]);
-
-  const getParcelQueryPoint = (parcel: Parcel): [number, number] | null => {
-    if (
-      parcel.center &&
-      Number.isFinite(parcel.center[0]) &&
-      Number.isFinite(parcel.center[1])
-    ) {
-      return parcel.center;
-    }
-    if (parcel.coordinates && parcel.coordinates.length >= 3) {
-      return calculatePolygonCentroid(parcel.coordinates);
-    }
-    return null;
-  };
-
-  // Match single parcel with TKGM using its center coordinates
-  const handleMatchSingleParcelTkgm = async (parcel: Parcel) => {
-    const point = getParcelQueryPoint(parcel);
-    if (!point) {
-      setParcelTkgmErrors((prev) => ({
-        ...prev,
-        [parcel.id]: 'Parselin harita koordinatı bulunamadı.',
-      }));
-      return;
-    }
-
-    setMatchingParcelIds((prev) => ({ ...prev, [parcel.id]: true }));
-    setParcelTkgmErrors((prev) => {
-      const next = { ...prev };
-      delete next[parcel.id];
-      return next;
-    });
-
-    try {
-      const tkgm = await queryTkgmParcelByCoords(point[0], point[1]);
-      const latestList = parcelsRef.current;
-      const currentTarget = latestList.find((p) => p.id === parcel.id) || parcel;
-      const merged = mergeParcelWithTkgm(currentTarget, tkgm);
-      const nextList = latestList.map((p) => (p.id === merged.id ? merged : p));
-      parcelsRef.current = nextList;
-      onUpdateParcels(nextList);
-      setSelectedParcelId(merged.id);
-    } catch (err: any) {
-      setParcelTkgmErrors((prev) => ({
-        ...prev,
-        [parcel.id]: err?.message || 'TKGM eşleştirmesi başarısız oldu.',
-      }));
-    } finally {
-      setMatchingParcelIds((prev) => {
-        const next = { ...prev };
-        delete next[parcel.id];
-        return next;
-      });
-    }
-  };
-
-  // Batch match parcels sequentially with polite rate limiting (350ms delay)
-  const handleBatchMatchTkgm = async (onlyUnmatched: boolean) => {
-    if (batchState?.running) return;
-    const targets = parcelsRef.current.filter((p) =>
-      onlyUnmatched ? !p.tkgmSorguTarihi : true
-    );
-    if (targets.length === 0) return;
-
-    batchCancelRef.current = false;
-    let successCount = 0;
-    let failCount = 0;
-
-    setBatchState({
-      running: true,
-      current: 0,
-      total: targets.length,
-      successCount: 0,
-      failCount: 0,
-    });
-
-    for (let i = 0; i < targets.length; i++) {
-      if (batchCancelRef.current) break;
-
-      const target = targets[i];
-      setBatchState((prev) =>
-        prev ? { ...prev, current: i + 1, successCount, failCount } : null
-      );
-
-      const point = getParcelQueryPoint(target);
-      if (!point) {
-        failCount++;
-        setParcelTkgmErrors((prev) => ({
-          ...prev,
-          [target.id]: 'Parselin harita koordinatı bulunamadı.',
-        }));
-      } else {
-        setMatchingParcelIds((prev) => ({ ...prev, [target.id]: true }));
-        try {
-          const tkgm = await queryTkgmParcelByCoords(point[0], point[1]);
-          const latestList = parcelsRef.current;
-          const freshTarget = latestList.find((p) => p.id === target.id) || target;
-          const merged = mergeParcelWithTkgm(freshTarget, tkgm);
-          const nextList = latestList.map((p) => (p.id === merged.id ? merged : p));
-          parcelsRef.current = nextList;
-          onUpdateParcels(nextList);
-
-          setParcelTkgmErrors((prev) => {
-            const next = { ...prev };
-            delete next[target.id];
-            return next;
-          });
-          successCount++;
-        } catch (err: any) {
-          failCount++;
-          setParcelTkgmErrors((prev) => ({
-            ...prev,
-            [target.id]: err?.message || 'TKGM eşleştirmesi başarısız oldu.',
-          }));
-        } finally {
-          setMatchingParcelIds((prev) => {
-            const next = { ...prev };
-            delete next[target.id];
-            return next;
-          });
-        }
-      }
-
-      if (i < targets.length - 1 && !batchCancelRef.current) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
-
-    const cancelled = batchCancelRef.current;
-    setBatchState({
-      running: false,
-      current: targets.length,
-      total: targets.length,
-      successCount,
-      failCount,
-      summaryMsg: cancelled
-        ? `Toplu eşleştirme durduruldu: ${successCount} parsel güncellendi, ${failCount} hata.`
-        : `TKGM eşleştirmesi tamamlandı: ${successCount} parsel güncellendi${
-            failCount > 0 ? `, ${failCount} parselde uyarı oluştu` : ''
-          }.`,
-    });
-  };
-
-  // Refresh currently opened edit modal parcel from TKGM
-  const handleMatchEditingParcelTkgm = async () => {
-    if (!editingParcel || editingTkgmLoading) return;
-    const point = getParcelQueryPoint(editingParcel);
-    if (!point) {
-      setEditingTkgmMsg({
-        type: 'error',
-        text: 'Bu parsel için harita koordinatı bulunamadığından TKGM sorgusu yapılamıyor.',
-      });
-      return;
-    }
-
-    setEditingTkgmLoading(true);
-    setEditingTkgmMsg(null);
-    try {
-      const tkgm = await queryTkgmParcelByCoords(point[0], point[1]);
-      const merged = mergeParcelWithTkgm(editingParcel, tkgm);
-      setEditingParcel(merged);
-      setEditingTkgmMsg({
-        type: 'success',
-        text: 'Tapu öznitelikleri ve sınır geometrisi TKGM kaydından güncellendi. Kaydetmek için "Değişiklikleri Kaydet" butonuna basın.',
-      });
-    } catch (err: any) {
-      setEditingTkgmMsg({
-        type: 'error',
-        text: err?.message || 'TKGM sorgusu başarısız oldu.',
-      });
-    } finally {
-      setEditingTkgmLoading(false);
-    }
-  };
 
   // Master KML Upload Handler
   const handleMasterKmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -272,7 +70,7 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
       onUpdateParcels(updated);
       setSelectedParcelId(parsed[0].id);
       setUploadBannerMsg(
-        `${parsed.length} adet taşınmaz parseli KML dosyasından yüklendi. İsterseniz aşağıdaki butonla TKGM üzerinden tapu ve sınır bilgilerini eşleştirebilirsiniz.`
+        `${parsed.length} adet taşınmaz parseli KML dosyasından başarıyla yüklendi.`
       );
     } catch (err: any) {
       setUploadBannerMsg('KML okuma hatası: ' + err.message);
@@ -499,30 +297,6 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
     }
   };
 
-  // Add New Parcel & Automatically Open Edit Modal
-  const handleAddManualParcel = () => {
-    const newP: Parcel = {
-      id: 'p_' + Math.random().toString(36).substring(2, 9),
-      ada: '',
-      parselNo: String(parcels.length + 1),
-      mevkii: '',
-      alanM2: 1000,
-      nitelik: 'Tarla',
-      birimFiyatTL: 1000,
-      toplamDegerTL: 1000000,
-      coordinates: [
-        [39.925, 32.85],
-        [39.928, 32.855],
-        [39.924, 32.858],
-        [39.921, 32.853],
-      ],
-      subUsageAreas: [],
-    };
-    onUpdateParcels([...parcels, newP]);
-    setSelectedParcelId(newP.id);
-    setEditingParcel(newP); // Automatically open edit modal!
-  };
-
   // Save Edited Parcel
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -568,131 +342,31 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
           <button
             onClick={() => masterKmlInputRef.current?.click()}
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm whitespace-nowrap"
-            title="Masaüstünden parsel sınırlarını içeren KML dosyasını seçin"
+            title="Bilgisayarınızdan parsel sınırlarını içeren KML dosyasını seçin"
           >
             <Upload className="w-4 h-4" />
             Dosyadan KML Yükle
           </button>
-
-          <button
-            onClick={() => setShowTkgmModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition whitespace-nowrap"
-            title="KML olmadan il/ilçe/mahalle/ada/parsel veya koordinat ile TKGM üzerinden parsel ekleyin"
-          >
-            <Search className="w-3.5 h-3.5" />
-            TKGM&apos;den Parsel Sorgula
-          </button>
-
-          <button
-            onClick={handleAddManualParcel}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm whitespace-nowrap"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            + Yeni Parsel Ekle
-          </button>
         </div>
       </div>
 
-      {/* Upload / TKGM Batch Bar */}
-      {(uploadBannerMsg || parcels.length > 0) && (() => {
-        const unmatchedCount = parcels.filter((p) => !p.tkgmSorguTarihi).length;
-        const matchedCount = parcels.length - unmatchedCount;
-        return (
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="space-y-1">
-              {uploadBannerMsg ? (
-                <div className="flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300 font-medium">
-                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>{uploadBannerMsg}</span>
-                  <button
-                    type="button"
-                    onClick={() => setUploadBannerMsg(null)}
-                    className="text-slate-400 hover:text-slate-600 ml-1"
-                    title="Kapat"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <div className="text-xs text-slate-600 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    TKGM Tapu ve Sınır Doğrulama
-                  </span>
-                  <span>·</span>
-                  <span className="font-mono tabular-nums">
-                    {matchedCount} / {parcels.length} parsel eşleştirildi
-                  </span>
-                </div>
-              )}
-
-              {batchState?.running && (
-                <div className="flex items-center gap-2 text-[11px] text-blue-700 dark:text-blue-400 font-mono tabular-nums">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  <span>
-                    {batchState.current} / {batchState.total} parsel sorgulanıyor... ({batchState.successCount} başarılı
-                    {batchState.failCount > 0 ? `, ${batchState.failCount} uyarı` : ''})
-                  </span>
-                </div>
-              )}
-
-              {!batchState?.running && batchState?.summaryMsg && (
-                <div className="flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-400">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  <span>{batchState.summaryMsg}</span>
-                  <button
-                    type="button"
-                    onClick={() => setBatchState(null)}
-                    className="text-slate-400 hover:text-slate-600"
-                    title="Kapat"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {parcels.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {batchState?.running ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      batchCancelRef.current = true;
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 hover:bg-red-100 transition"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Durdur
-                  </button>
-                ) : (
-                  <>
-                    {unmatchedCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => handleBatchMatchTkgm(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-                        title="Henüz TKGM ile eşleştirilmemiş parselleri sırayla sorgular"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        Eşleşmemişleri TKGM ile Eşleştir ({unmatchedCount})
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleBatchMatchTkgm(false)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition"
-                      title="Listedeki tüm parsellerin tapu bilgilerini ve sınırlarını TKGM ile günceller"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Tümünü TKGM ile Eşleştir
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+      {/* KML Upload Feedback Banner */}
+      {uploadBannerMsg && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{uploadBannerMsg}</span>
           </div>
-        );
-      })()}
+          <button
+            type="button"
+            onClick={() => setUploadBannerMsg(null)}
+            className="text-slate-400 hover:text-slate-600 shrink-0"
+            title="Kapat"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Interactive Map View */}
       <div>
@@ -733,7 +407,7 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
               Henüz Parsel Kaydı Bulunmuyor
             </p>
             <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
-              Yukarıdaki <strong>"Dosyadan KML Yükle"</strong> butonuna tıklayarak bilgisayarınızdaki KML dosyasını seçebilir veya manuel parsel ekleyebilirsiniz.
+              Yukarıdaki <strong>&quot;Dosyadan KML Yükle&quot;</strong> butonuna tıklayarak bilgisayarınızdaki kadastro KML dosyasını seçebilirsiniz.
             </p>
           </div>
         ) : (
@@ -756,8 +430,6 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                 {parcels.map((parcel) => {
                   const isSelected = parcel.id === selectedParcelId;
                   const subCount = parcel.subUsageAreas?.length || 0;
-                  const isMatching = Boolean(matchingParcelIds[parcel.id]);
-                  const tkgmErr = parcelTkgmErrors[parcel.id];
 
                   const locationStr = [parcel.il, parcel.ilce, parcel.mahalle].filter(Boolean).join(' / ') || '-';
                   const paftaMevkiiStr = [parcel.pafta ? `P: ${parcel.pafta}` : '', parcel.mevkii].filter(Boolean).join(' · ') || '-';
@@ -773,27 +445,7 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                       }`}
                     >
                       <td className="py-2.5 px-4 font-mono font-bold text-slate-900 dark:text-slate-100">
-                        <div className="flex items-center gap-2">
-                          <span>{parcel.ada} / {parcel.parselNo}</span>
-                          {parcel.tkgmSorguTarihi && !tkgmErr && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-sans font-semibold text-emerald-600 dark:text-emerald-400"
-                              title={`TKGM ile eşleştirildi (${new Date(parcel.tkgmSorguTarihi).toLocaleString('tr-TR')})`}
-                            >
-                              <CheckCircle2 className="w-3 h-3" />
-                              TKGM
-                            </span>
-                          )}
-                          {tkgmErr && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-sans font-medium text-red-600 dark:text-red-400"
-                              title={tkgmErr}
-                            >
-                              <AlertCircle className="w-3 h-3" />
-                              Hata
-                            </span>
-                          )}
-                        </div>
+                        {parcel.ada} / {parcel.parselNo}
                       </td>
                       <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
                         {locationStr}
@@ -843,22 +495,6 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleMatchSingleParcelTkgm(parcel);
-                          }}
-                          disabled={isMatching || Boolean(batchState?.running)}
-                          className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-50 transition"
-                          title="TKGM ile Eşleştir (Tapu ve Sınır Güncelle)"
-                        >
-                          {isMatching ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                          ) : (
-                            <RefreshCw className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingTkgmMsg(null);
                             setEditingParcel(parcel);
                           }}
                           className="p-1 text-slate-400 hover:text-blue-600 transition"
@@ -899,53 +535,17 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
                   Parsel Kadastro Bilgilerini Düzenle
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  KML&apos;den otomatik tespit edilen, TKGM&apos;den çekilen veya elle girilen kayıtlar
+                  KML dosyasından yüklenen parsel kadastro ve değerleme bilgileri
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleMatchEditingParcelTkgm}
-                  disabled={editingTkgmLoading}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 disabled:opacity-50 transition"
-                  title="Parselin harita koordinatından TKGM tapu ve sınır verisini yenile"
-                >
-                  {editingTkgmLoading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-3 h-3" />
-                  )}
-                  TKGM&apos;den Güncelle
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingParcel(null);
-                    setEditingTkgmMsg(null);
-                  }}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {editingTkgmMsg && (
-              <div
-                className={`p-2.5 rounded-lg border text-[11px] flex items-start gap-2 ${
-                  editingTkgmMsg.type === 'success'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300'
-                    : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300'
-                }`}
+              <button
+                type="button"
+                onClick={() => setEditingParcel(null)}
+                className="text-slate-400 hover:text-slate-600 shrink-0"
               >
-                {editingTkgmMsg.type === 'success' ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-600" />
-                ) : (
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-600" />
-                )}
-                <span>{editingTkgmMsg.text}</span>
-              </div>
-            )}
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
             {/* İl / İlçe / Mahalle */}
             <div className="grid grid-cols-3 gap-2.5">
@@ -1389,20 +989,6 @@ export const ParcelManagement: React.FC<ParcelManagementProps> = ({
         );
       })()}
 
-      {/* Direct TKGM Lookup Modal */}
-      <TkgmSearchModal
-        isOpen={showTkgmModal}
-        onClose={() => setShowTkgmModal(false)}
-        onAddParcel={(newParcel) => {
-          const nextList = [...parcelsRef.current, newParcel];
-          parcelsRef.current = nextList;
-          onUpdateParcels(nextList);
-          setSelectedParcelId(newParcel.id);
-          setUploadBannerMsg(
-            `${newParcel.ada}/${newParcel.parselNo} parseli TKGM üzerinden portföye eklendi.`
-          );
-        }}
-      />
     </div>
   );
 };

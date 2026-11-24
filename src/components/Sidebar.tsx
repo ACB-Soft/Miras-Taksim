@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Home,
-  PlusCircle,
   MapPin,
   Users,
   Scale,
@@ -13,7 +12,6 @@ import { ProjectState } from '../types';
 
 export type ActiveModule =
   | 'home'
-  | 'parcel_add'
   | 'parcels'
   | 'heirs'
   | 'optimization'
@@ -38,12 +36,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Ana Sayfa',
       icon: Home,
       sublabel: 'Proje Başlat & Devam Et',
-    },
-    {
-      id: 'parcel_add' as ActiveModule,
-      label: 'Parsel Ekleme',
-      icon: PlusCircle,
-      sublabel: 'TKGM Parsel Sorgu & Manuel',
     },
     {
       id: 'parcels' as ActiveModule,

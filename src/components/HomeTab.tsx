@@ -166,7 +166,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             Miras Taksim ve Fiili Kullanım Yönetimine Hoş Geldiniz
           </h1>
           <p className="text-sm text-slate-300 leading-relaxed">
-            Kadastro parsellerini KML veya TKGM üzerinden aktarın, kuşak bazlı veraset soyağacı ve hisse oranlarını tanımlayın; müstakil veya veraset kolu ortaklı taksim senaryolarını oluşturup ivaz denkleştirme ve noter taslakları hazırlayın.
+            Kadastro parsellerini KML dosyası üzerinden aktarın, kuşak bazlı veraset soyağacı ve hisse oranlarını tanımlayın; müstakil veya veraset kolu ortaklı taksim senaryolarını oluşturup ivaz denkleştirme ve noter taslakları hazırlayın.
           </p>
         </div>
 
