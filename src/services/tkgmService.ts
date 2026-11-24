@@ -136,12 +136,47 @@ function cleanProp(val: unknown): string {
   return String(val).replace(/\s+/g, ' ').trim();
 }
 
+function simplifyClientGeometry(geometry: any, maxPoints = 64): [number, number][] | undefined {
+  if (!geometry || !geometry.coordinates) return undefined;
+  let ring: number[][] = [];
+  if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates[0])) {
+    ring = geometry.coordinates[0];
+  } else if (
+    geometry.type === 'MultiPolygon' &&
+    Array.isArray(geometry.coordinates[0]) &&
+    Array.isArray(geometry.coordinates[0][0])
+  ) {
+    let bestRing: number[][] = geometry.coordinates[0][0];
+    for (const poly of geometry.coordinates) {
+      if (Array.isArray(poly?.[0]) && poly[0].length > bestRing.length) {
+        bestRing = poly[0];
+      }
+    }
+    ring = bestRing;
+  }
+  if (!Array.isArray(ring) || ring.length < 3) return undefined;
+  const step = Math.max(1, Math.floor(ring.length / maxPoints));
+  const out: [number, number][] = [];
+  for (let i = 0; i < ring.length; i += step) {
+    const pt = ring[i];
+    if (Array.isArray(pt) && pt.length >= 2) {
+      const lng = Number(pt[0]);
+      const lat = Number(pt[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        out.push([Number(lat.toFixed(5)), Number(lng.toFixed(5))]);
+      }
+    }
+  }
+  return out.length >= 3 ? out : undefined;
+}
+
 function mapAdminFeaturesClient(payload: any): TkgmAdminItem[] {
   const features = Array.isArray(payload?.features) ? payload.features : [];
   return features
     .map((f: any) => ({
       id: Number(f?.properties?.id),
       text: String(f?.properties?.text || '').trim(),
+      coordinates: simplifyClientGeometry(f?.geometry),
     }))
     .filter(
       (item: TkgmAdminItem) =>
@@ -332,10 +367,17 @@ export async function fetchTkgmIlceler(ilId: number): Promise<TkgmAdminItem[]> {
     throw new Error(proxyRes.data?.error || 'TKGM ilçe listesi alınamadı.');
   }
 
-  const directData = await fetchDirectTkgm(`/idariYapi/ilceListe/${ilId}`);
-  const items = mapAdminFeaturesClient(directData);
-  ilceCache[ilId] = items;
-  return items;
+  try {
+    const directData = await fetchDirectTkgm(`/idariYapi/ilceListe/${ilId}`);
+    const items = mapAdminFeaturesClient(directData);
+    ilceCache[ilId] = items;
+    return items;
+  } catch (err: any) {
+    if (String(err?.message || '').includes('kayıt bulunamadı')) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 export async function fetchTkgmMahalleler(ilceId: number): Promise<TkgmAdminItem[]> {
@@ -357,10 +399,17 @@ export async function fetchTkgmMahalleler(ilceId: number): Promise<TkgmAdminItem
     throw new Error(proxyRes.data?.error || 'TKGM mahalle listesi alınamadı.');
   }
 
-  const directData = await fetchDirectTkgm(`/idariYapi/mahalleListe/${ilceId}`);
-  const items = mapAdminFeaturesClient(directData);
-  mahalleCache[ilceId] = items;
-  return items;
+  try {
+    const directData = await fetchDirectTkgm(`/idariYapi/mahalleListe/${ilceId}`);
+    const items = mapAdminFeaturesClient(directData);
+    mahalleCache[ilceId] = items;
+    return items;
+  } catch (err: any) {
+    if (String(err?.message || '').includes('kayıt bulunamadı')) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 export async function queryTkgmParcelByCoords(
@@ -407,10 +456,11 @@ export async function queryTkgmParcelByAdaParsel(
   ada: string,
   parsel: string
 ): Promise<TkgmParcelResult> {
-  const cleanAda = ada.trim();
+  const rawAda = ada.trim();
+  const cleanAda = rawAda === '' || rawAda === '-' ? '0' : rawAda;
   const cleanParsel = parsel.trim();
   if (!Number.isInteger(mahalleId) || mahalleId <= 0 || !/^\d+$/.test(cleanAda) || !/^\d+$/.test(cleanParsel)) {
-    throw new Error('Mahalle kodu, ada ve parsel numarası geçerli tam sayı olmalıdır.');
+    throw new Error('Mahalle kodu, ada ve parsel numarası geçerli tam sayı olmalıdır (Ada yoksa 0 yazınız).');
   }
 
   const params = new URLSearchParams({

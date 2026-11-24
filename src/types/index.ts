@@ -35,6 +35,7 @@ export interface Parcel {
 export interface TkgmAdminItem {
   id: number;
   text: string;
+  coordinates?: [number, number][]; // [lat, lng][] simplified boundary for map preview
 }
 
 export interface TkgmParcelResult {

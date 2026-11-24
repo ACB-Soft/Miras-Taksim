@@ -18,6 +18,7 @@ import { computeHeirEntitlements, calculateNetShareFromRelative } from './utils/
 import { Header } from './components/Header';
 import { Sidebar, ActiveModule } from './components/Sidebar';
 import { HomeTab } from './components/HomeTab';
+import { ParcelAddModule } from './components/ParcelAddModule';
 import { ParcelManagement } from './components/ParcelManagement';
 import { HeirManagement } from './components/HeirManagement';
 import { OptimizationModule } from './components/OptimizationModule';
@@ -253,6 +254,8 @@ export default function App() {
     switch (mod) {
       case 'home':
         return 'Ana Sayfa';
+      case 'parcel_add':
+        return 'Parsel Ekleme (TKGM Sorgu)';
       case 'parcels':
         return 'Parsel & Harita Yönetimi';
       case 'heirs':
@@ -310,6 +313,14 @@ export default function App() {
                 onDeleteProject={handleDeleteSavedProject}
                 onImportProjectFile={handleImportProjectFile}
                 onExportProjectZip={handleExportProjectZip}
+              />
+            )}
+
+            {activeModule === 'parcel_add' && (
+              <ParcelAddModule
+                parcels={project.parcels}
+                onUpdateParcels={handleUpdateParcels}
+                onNavigateToParcels={() => setActiveModule('parcels')}
               />
             )}
 

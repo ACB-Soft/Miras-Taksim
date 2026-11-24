@@ -79,15 +79,22 @@ Rapor profesyonel, güven verici, uzlaştırıcı ve analitik bir dille hazırla
 
 // Fixed allowlisted TKGM MEGSIS CBS API base URL (never overridden by client)
 const TKGM_API_BASE = 'https://cbsapi.tkgm.gov.tr/megsiswebapi.v3.1/api';
+const TKGM_IL_STATIC_URL =
+  'https://parselsorgu.tkgm.gov.tr/app/modules/administrativeQuery/data/ilListe.json';
+
+type AdminFeatureItem = {
+  id: number;
+  text: string;
+  coordinates?: [number, number][];
+};
 
 // Server-side cache for TKGM administrative lists (provinces, districts, neighborhoods)
-let cachedIller: { id: number; text: string }[] | null = null;
-const cachedIlceler: Record<string, { id: number; text: string }[]> = {};
-const cachedMahalleler: Record<string, { id: number; text: string }[]> = {};
+let cachedIller: AdminFeatureItem[] | null = null;
+const cachedIlceler: Record<string, AdminFeatureItem[]> = {};
+const cachedMahalleler: Record<string, AdminFeatureItem[]> = {};
 
-async function fetchTkgmUpstream(endpointPath: string): Promise<{ ok: boolean; status: number; data: any }> {
-  const targetUrl = `${TKGM_API_BASE}${endpointPath}`;
-  const response = await fetch(targetUrl, {
+async function fetchJsonWithHeaders(url: string): Promise<{ ok: boolean; status: number; data: any }> {
+  const response = await fetch(url, {
     method: 'GET',
     headers: {
       Origin: 'https://parselsorgu.tkgm.gov.tr',
@@ -110,24 +117,68 @@ async function fetchTkgmUpstream(endpointPath: string): Promise<{ ok: boolean; s
   return { ok: response.ok, status: response.status, data };
 }
 
-function mapAdminFeatures(payload: any): { id: number; text: string }[] {
+async function fetchTkgmUpstream(endpointPath: string): Promise<{ ok: boolean; status: number; data: any }> {
+  return fetchJsonWithHeaders(`${TKGM_API_BASE}${endpointPath}`);
+}
+
+function simplifyAdminGeometry(geometry: any, maxPoints = 64): [number, number][] | undefined {
+  if (!geometry || !geometry.coordinates) return undefined;
+  let ring: number[][] = [];
+  if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates[0])) {
+    ring = geometry.coordinates[0];
+  } else if (
+    geometry.type === 'MultiPolygon' &&
+    Array.isArray(geometry.coordinates[0]) &&
+    Array.isArray(geometry.coordinates[0][0])
+  ) {
+    // Pick the largest polygon ring so islands don't shrink mainland zoom
+    let bestRing: number[][] = geometry.coordinates[0][0];
+    for (const poly of geometry.coordinates) {
+      if (Array.isArray(poly?.[0]) && poly[0].length > bestRing.length) {
+        bestRing = poly[0];
+      }
+    }
+    ring = bestRing;
+  }
+  if (!Array.isArray(ring) || ring.length < 3) return undefined;
+
+  const step = Math.max(1, Math.floor(ring.length / maxPoints));
+  const out: [number, number][] = [];
+  for (let i = 0; i < ring.length; i += step) {
+    const pt = ring[i];
+    if (Array.isArray(pt) && pt.length >= 2) {
+      const lng = Number(pt[0]);
+      const lat = Number(pt[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        out.push([Number(lat.toFixed(5)), Number(lng.toFixed(5))]);
+      }
+    }
+  }
+  return out.length >= 3 ? out : undefined;
+}
+
+function mapAdminFeatures(payload: any): AdminFeatureItem[] {
   const features = Array.isArray(payload?.features) ? payload.features : [];
   return features
     .map((f: any) => ({
       id: Number(f?.properties?.id),
       text: String(f?.properties?.text || '').trim(),
+      coordinates: simplifyAdminGeometry(f?.geometry),
     }))
-    .filter((item: { id: number; text: string }) => Number.isFinite(item.id) && item.id > 0 && item.text.length > 0)
-    .sort((a: { text: string }, b: { text: string }) => a.text.localeCompare(b.text, 'tr'));
+    .filter((item: AdminFeatureItem) => Number.isFinite(item.id) && item.id > 0 && item.text.length > 0)
+    .sort((a: AdminFeatureItem, b: AdminFeatureItem) => a.text.localeCompare(b.text, 'tr'));
 }
 
-// 1. TKGM İl Listesi
+// 1. TKGM İl Listesi (brktrk/parselsorgu ilListe.json + MEGSIS fallback)
 app.get('/api/tkgm/iller', async (_req, res) => {
   if (cachedIller && cachedIller.length > 0) {
     return res.json({ items: cachedIller });
   }
   try {
-    const result = await fetchTkgmUpstream('/idariYapi/ilListe');
+    let result = await fetchJsonWithHeaders(TKGM_IL_STATIC_URL);
+    if (!result.ok || !result.data) {
+      result = await fetchTkgmUpstream('/idariYapi/ilListe');
+    }
     if (!result.ok || !result.data) {
       return res.status(502).json({ error: 'TKGM il listesi şu anda alınamadı.' });
     }
@@ -151,6 +202,9 @@ app.get('/api/tkgm/ilceler/:ilId', async (req, res) => {
   }
   try {
     const result = await fetchTkgmUpstream(`/idariYapi/ilceListe/${ilId}`);
+    if (result.status === 404) {
+      return res.json({ items: [] });
+    }
     if (!result.ok || !result.data) {
       return res.status(502).json({ error: 'TKGM ilçe listesi alınamadı.' });
     }
@@ -174,6 +228,9 @@ app.get('/api/tkgm/mahalleler/:ilceId', async (req, res) => {
   }
   try {
     const result = await fetchTkgmUpstream(`/idariYapi/mahalleListe/${ilceId}`);
+    if (result.status === 404) {
+      return res.json({ items: [] });
+    }
     if (!result.ok || !result.data) {
       return res.status(502).json({ error: 'TKGM mahalle listesi alınamadı.' });
     }

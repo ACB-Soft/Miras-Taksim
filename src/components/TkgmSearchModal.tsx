@@ -183,8 +183,9 @@ export const TkgmSearchModal: React.FC<TkgmSearchModalProps> = ({
       setErrorMsg('Lütfen İl, İlçe ve Mahalle / Köy seçimi yapınız.');
       return;
     }
-    if (!/^\d+$/.test(adaNo.trim()) || !/^\d+$/.test(parselNo.trim())) {
-      setErrorMsg('Ada ve Parsel numaraları geçerli tam sayı olmalıdır.');
+    const normalizedAda = adaNo.trim() === '' || adaNo.trim() === '-' ? '0' : adaNo.trim();
+    if (!/^\d+$/.test(normalizedAda) || !/^\d+$/.test(parselNo.trim())) {
+      setErrorMsg('Ada ve Parsel numaraları geçerli tam sayı olmalıdır (Ada yoksa 0 yazınız).');
       return;
     }
 
@@ -192,7 +193,7 @@ export const TkgmSearchModal: React.FC<TkgmSearchModalProps> = ({
     try {
       const data = await queryTkgmParcelByAdaParsel(
         Number(selectedMahalleId),
-        adaNo.trim(),
+        normalizedAda,
         parselNo.trim()
       );
       setResult(data);
@@ -435,16 +436,15 @@ export const TkgmSearchModal: React.FC<TkgmSearchModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                    Ada No
+                    Ada No <span className="font-normal text-slate-400">(yoksa 0)</span>
                   </label>
                   <input
                     type="text"
                     inputMode="numeric"
                     value={adaNo}
                     onChange={(e) => setAdaNo(e.target.value)}
-                    placeholder="Örn: 124"
+                    placeholder="Örn: 124 veya 0"
                     className="w-full mt-1 p-2 text-xs font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                    required
                   />
                 </div>
                 <div>
